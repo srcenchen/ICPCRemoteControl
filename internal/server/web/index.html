@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ICPC 远程集控</title>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/theme/monokai.min.css">
+    <!-- xterm.js for terminal -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/shell/shell.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+</head>
+<body>
+    <nav id="navbar">
+        <div class="nav-brand">ICPC 远程集控</div>
+        <ul class="nav-links">
+            <li><a href="#dashboard" class="nav-link active" data-page="dashboard">仪表盘</a></li>
+            <li><a href="#devices" class="nav-link" data-page="devices">设备管理</a></li>
+            <li><a href="#commands" class="nav-link" data-page="commands">命令执行</a></li>
+        </ul>
+        <div id="status-bar">
+            <span id="online-count">在线: 0</span> /
+            <span id="total-count">总计: 0</span>
+        </div>
+    </nav>
+
+    <main id="content"></main>
+
+    <script src="/assets/js/app.js"></script>
+    <script src="/assets/js/dashboard.js"></script>
+    <script src="/assets/js/devices.js"></script>
+    <script src="/assets/js/commands.js"></script>
+    <script src="/assets/js/terminal.js"></script>
+</body>
+</html>

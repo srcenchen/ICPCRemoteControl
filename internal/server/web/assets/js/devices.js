@@ -1,0 +1,164 @@
+// 设备管理页面
+function loadDevices() {
+    $.getJSON("/api/devices", function(devices) {
+        renderDevices(devices);
+    }).fail(function() {
+        $("#content").html('<div class="empty-state">无法加载设备列表</div>');
+    });
+}
+
+function renderDevices(devices) {
+    var rows = devices.length === 0
+        ? '<tr><td colspan="7" class="empty-state">暂无已注册设备</td></tr>'
+        : devices.map(function(d) {
+            return '<tr class="clickable-row" onclick="showDeviceDetail(' + d.assigned_id + ')">' +
+                '<td><strong>#' + d.assigned_id + '</strong></td>' +
+                '<td>' + escapeHtml(d.hostname) + '</td>' +
+                '<td>' + escapeHtml(d.username) + '</td>' +
+                '<td>' + escapeHtml(d.os_name) + '</td>' +
+                '<td>' + escapeHtml(d.cpu_model) + '</td>' +
+                '<td>' + formatBytes(d.memory_total) + '</td>' +
+                '<td><span class="badge badge-' + (d.connected ? 'online' : 'offline') + '">' + (d.connected ? '在线' : '离线') + '</span></td>' +
+                '</tr>';
+        }).join("");
+
+    var html = '' +
+        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">' +
+            '<h2 class="section-title" style="margin:0;">设备管理</h2>' +
+            '<button class="btn btn-danger btn-sm" onclick="resetAllDevices()">&#x21BA; 重置所有设备</button>' +
+        '</div>' +
+        '<div class="table-container">' +
+            '<table>' +
+                '<thead>' +
+                    '<tr>' +
+                        '<th>ID</th><th>主机名</th><th>用户</th><th>操作系统</th><th>CPU</th><th>内存</th><th>状态</th>' +
+                    '</tr>' +
+                '</thead>' +
+                '<tbody>' + rows + '</tbody>' +
+            '</table>' +
+        '</div>' +
+        '<div id="device-detail-container"></div>';
+
+    $("#content").html(html);
+    updateStatusBar();
+}
+
+function showDeviceDetail(assignedID) {
+    $.getJSON("/api/devices/" + assignedID, function(device) {
+        renderDeviceDetail(device);
+    }).fail(function() {
+        alert("无法加载设备详情");
+    });
+}
+
+function renderDeviceDetail(device) {
+    var statusClass = device.connected ? "badge-online" : "badge-offline";
+    var statusText = device.connected ? "在线" : "离线";
+
+    var gpuInfo = "";
+    try { gpuInfo = JSON.parse(device.gpu_info); } catch(e) { gpuInfo = []; }
+    var gpuText = Array.isArray(gpuInfo)
+        ? gpuInfo.map(function(g) { return g.vendor + " " + g.name; }).join(", ")
+        : "无";
+
+    var diskInfo = "";
+    try { diskInfo = JSON.parse(device.disk_info); } catch(e) { diskInfo = []; }
+    var diskText = Array.isArray(diskInfo)
+        ? diskInfo.map(function(d) { return d.mountpoint + " (" + formatBytes(d.bytes.total) + ")"; }).join(", ")
+        : "无";
+
+    var ipInfo = "";
+    try { ipInfo = JSON.parse(device.local_ip); } catch(e) { ipInfo = []; }
+    var ipText = Array.isArray(ipInfo)
+        ? ipInfo.map(function(i) { return i.name + ": " + i.ipv4; }).join(", ")
+        : "无";
+
+    var html = '' +
+        '<div class="modal-overlay" onclick="closeDeviceDetail(event)">' +
+            '<div class="modal" onclick="event.stopPropagation()">' +
+                '<button class="modal-close" onclick="closeDeviceDetail()">&times;</button>' +
+                '<h2>设备 #' + device.assigned_id + ' 详情</h2>' +
+                '<span class="badge ' + statusClass + '">' + statusText + '</span>' +
+
+                '<h3 style="margin-top:20px; color:var(--accent)">系统信息</h3>' +
+                '<div class="detail-grid">' +
+                    '<div class="detail-item"><div class="label">主机名</div><div class="value">' + escapeHtml(device.hostname) + '</div></div>' +
+                    '<div class="detail-item"><div class="label">用户名</div><div class="value">' + escapeHtml(device.username) + '</div></div>' +
+                    '<div class="detail-item"><div class="label">操作系统</div><div class="value">' + escapeHtml(device.os_pretty_name) + '</div></div>' +
+                    '<div class="detail-item"><div class="label">内核</div><div class="value">' + escapeHtml(device.kernel_release) + ' (' + escapeHtml(device.kernel_arch) + ')</div></div>' +
+                    '<div class="detail-item"><div class="label">Shell</div><div class="value">' + escapeHtml(device.shell) + '</div></div>' +
+                    '<div class="detail-item"><div class="label">终端</div><div class="value">' + escapeHtml(device.terminal) + '</div></div>' +
+                    '<div class="detail-item"><div class="label">桌面环境</div><div class="value">' + escapeHtml(device.de_name) + '</div></div>' +
+                    '<div class="detail-item"><div class="label">窗口管理器</div><div class="value">' + escapeHtml(device.wm_name) + '</div></div>' +
+                    '<div class="detail-item"><div class="label">运行时间</div><div class="value">' + Math.floor(device.uptime / 3600) + '时 ' + Math.floor((device.uptime % 3600) / 60) + '分</div></div>' +
+                '</div>' +
+
+                '<h3 style="margin-top:20px; color:var(--accent)">硬件信息</h3>' +
+                '<div class="detail-grid">' +
+                    '<div class="detail-item"><div class="label">CPU</div><div class="value">' + escapeHtml(device.cpu_model) + '</div></div>' +
+                    '<div class="detail-item"><div class="label">核心数</div><div class="value">' + device.cpu_physical_cores + ' 物理 / ' + device.cpu_logical_cores + ' 逻辑</div></div>' +
+                    '<div class="detail-item"><div class="label">GPU</div><div class="value">' + escapeHtml(gpuText) + '</div></div>' +
+                    '<div class="detail-item"><div class="label">内存总大小</div><div class="value">' + formatBytes(device.memory_total) + '</div></div>' +
+                    '<div class="detail-item"><div class="label">已用内存</div><div class="value">' + formatBytes(device.memory_used) + '</div></div>' +
+                '</div>' +
+
+                '<h3 style="margin-top:20px; color:var(--accent)">存储与网络</h3>' +
+                '<div class="detail-grid">' +
+                    '<div class="detail-item"><div class="label">磁盘</div><div class="value">' + escapeHtml(diskText) + '</div></div>' +
+                    '<div class="detail-item"><div class="label">网络</div><div class="value">' + escapeHtml(ipText) + '</div></div>' +
+                    '<div class="detail-item"><div class="label">首次上线</div><div class="value">' + device.first_seen + '</div></div>' +
+                    '<div class="detail-item"><div class="label">最后在线</div><div class="value">' + device.last_seen + '</div></div>' +
+                '</div>' +
+
+                '<div style="margin-top:24px; display:flex; gap:12px;">' +
+                    '<button class="btn btn-primary" onclick="navigateTo(\'commands\'); selectTarget(' + device.assigned_id + ');">' +
+                        '在此设备执行命令' +
+                    '</button>' +
+                    '<button class="btn btn-sm" style="background:var(--accent);color:#000;" onclick="openTerminal(' + device.assigned_id + ')">🖥 终端</button>' +
+                    '<button class="btn btn-danger btn-sm" onclick="deleteDevice(' + device.assigned_id + ')">移除设备</button>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+
+    $("#device-detail-container").html(html);
+}
+
+function closeDeviceDetail(e) {
+    if (e && e.target !== e.currentTarget) return;
+    $("#device-detail-container").empty();
+}
+
+function deleteDevice(assignedID) {
+    if (!confirm("确定要移除设备 #" + assignedID + " 吗？")) return;
+
+    $.ajax({
+        url: "/api/devices/" + assignedID,
+        method: "DELETE",
+        success: function() {
+            $("#device-detail-container").empty();
+            loadDevices();
+            updateStatusBar();
+        },
+        error: function() { alert("删除设备失败"); }
+    });
+}
+
+function resetAllDevices() {
+    if (!confirm("这将删除所有设备记录并断开所有客户端连接。\n客户端将以新 ID 重新连接，从 1 开始。\n\n确定要重置吗？")) return;
+
+    $.ajax({
+        url: "/api/devices/reset",
+        method: "POST",
+        success: function() {
+            $("#device-detail-container").empty();
+            loadDevices();
+            updateStatusBar();
+            alert("所有设备已重置。客户端将用新 ID 重新连接。");
+        },
+        error: function(xhr) {
+            var err = "重置失败";
+            try { err = JSON.parse(xhr.responseText).error || err; } catch(e) {}
+            alert(err);
+        }
+    });
+}
