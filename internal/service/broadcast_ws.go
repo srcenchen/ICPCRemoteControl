@@ -145,18 +145,39 @@ func (h *BroadcastWSHub) Serve(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[broadcast-ws] mode=%s disconnected", mode)
 	}()
 
-	// Keep connection alive, read pings.
-	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	// Keep connection alive with ping/pong.
+	conn.SetReadDeadline(time.Now().Add(wsPongWait))
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(wsPongWait))
 		return nil
 	})
+
+	// Send periodic pings to keep the connection alive through proxies/NATs.
+	pingTicker := time.NewTicker(wsPingPeriod)
+	defer pingTicker.Stop()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-pingTicker.C:
+				conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					return
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+
 	for {
 		_, _, err := conn.ReadMessage()
 		if err != nil {
 			break
 		}
 	}
+	pingTicker.Stop()
 }
 
 // Broadcast sends a message to all display connections for a given mode.
