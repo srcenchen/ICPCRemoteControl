@@ -49,12 +49,13 @@ func main() {
 
 	deviceRepo := data.NewDeviceRepo(db)
 	commandRepo := data.NewCommandRepo(db)
+	settingsRepo := data.NewSettingsRepo(db)
 
 	if err := deviceRepo.MarkAllOffline(); err != nil {
 		log.Printf("[main] warning: failed to mark devices offline: %v", err)
 	}
 
-	settings := service.NewServerSettings(*hostnamePrefix)
+	settings := service.NewServerSettings(*hostnamePrefix, settingsRepo)
 
 	idAssigner := biz.NewIDAssigner(deviceRepo)
 	hub := biz.NewHub(deviceRepo)
@@ -66,9 +67,11 @@ func main() {
 	statsHandler := service.NewStatsHandler(deviceRepo, commandRepo)
 	adminWSHandler := service.NewAdminWSHandler(hub)
 	terminalWSH := service.NewTerminalWSHandler(hub)
-	settingsHandler := service.NewSettingsHandler(settings)
+	settingsHandler := service.NewSettingsHandler(settings, hub)
+	broadcastRepo := data.NewBroadcastRepo(db)
+	broadcastHandler := service.NewBroadcastHandler(broadcastRepo)
 	networkHandler := service.NewNetworkHandler(settings, hub, commandRepo, dispatcher)
-	checkinHandler := service.NewCheckinHandler(deviceRepo)
+	checkinHandler := service.NewCheckinHandler(deviceRepo, hub)
 
 	// TCP handler for client connections.
 	tcpHandler := service.NewTCPHandler(hub, deviceRepo, commandRepo, idAssigner, dispatcher, settings)
@@ -94,6 +97,7 @@ func main() {
 		SettingsH:   settingsHandler,
 		NetworkH:    networkHandler,
 		CheckinH:    checkinHandler,
+		BroadcastH:  broadcastHandler,
 	}
 
 	srv := server.New(cfg)

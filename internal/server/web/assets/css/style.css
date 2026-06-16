@@ -300,7 +300,7 @@ select:focus, input[type="text"]:focus {
     font-size: 13px;
 }
 
-/* Device selector grid */
+/* Device selector grid (legacy, kept for network page) */
 .device-selector {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -375,6 +375,215 @@ select:focus, input[type="text"]:focus {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+/* Compact device list (command page) — use ID selector for higher specificity */
+#device-selector-container .device-search {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    margin-bottom: 8px;
+    display: block !important;
+}
+#device-selector-container .device-search:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(13,110,253,0.15);
+}
+
+#device-selector-container .device-toolbar {
+    display: flex !important;
+    gap: 6px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+#device-selector-container .device-list {
+    display: block !important;
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    margin-bottom: 4px;
+}
+
+#device-selector-container .device-list-item {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    border-bottom: 1px solid #f0f0f0;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.1s;
+}
+#device-selector-container .device-list-item:last-child { border-bottom: none; }
+#device-selector-container .device-list-item:hover { background: rgba(13,110,253,0.03); }
+#device-selector-container .device-list-item.selected { background: rgba(13,110,253,0.08); }
+#device-selector-container .device-list-item.offline { opacity: 0.45; }
+#device-selector-container .device-list-item.offline.selected { opacity: 0.7; }
+#device-selector-container .device-list-item.broadcast {
+    font-weight: 600;
+    background: #fafbfc;
+    border-bottom: 1px solid var(--border);
+}
+
+#device-selector-container .device-list-check {
+    width: 16px;
+    font-size: 12px;
+    color: var(--accent);
+    text-align: center;
+    flex-shrink: 0;
+    display: inline !important;
+}
+#device-selector-container .device-list-id {
+    width: 36px;
+    font-weight: 600;
+    color: var(--accent);
+    flex-shrink: 0;
+}
+#device-selector-container .device-list-name {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#device-selector-container .device-list-ip {
+    font-size: 11px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    max-width: 100px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#device-selector-container .device-list-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--danger);
+    flex-shrink: 0;
+}
+#device-selector-container .device-list-dot.online {
+    background: var(--success);
+}
+
+/* Result summary table */
+.result-summary {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+}
+.result-summary > div:first-child {
+    flex-shrink: 0;
+}
+.result-summary > div:nth-child(2) {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+#result-detail {
+    flex-shrink: 0;
+    max-height: 350px;
+    overflow-y: auto;
+    margin-top: 8px;
+}
+.result-detail {
+    background: #f8f9fa;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 0;
+}
+.result-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.result-table th, .result-table td {
+    padding: 6px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+.result-table th {
+    background: #f8f9fa;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--text-secondary);
+    position: sticky;
+    top: 0;
+}
+.result-row {
+    cursor: pointer;
+    transition: background 0.1s;
+}
+.result-row:hover { background: rgba(13,110,253,0.03); }
+.result-row.running { background: rgba(253,126,20,0.05); }
+.result-row.failed { background: rgba(220,53,69,0.04); }
+.result-row.completed { background: transparent; }
+.result-row.active { background: rgba(13,110,253,0.08); }
+
+.col-device { width: 60px; }
+.col-status { width: 90px; }
+.col-summary { }
+.col-duration { width: 70px; }
+
+/* Memory progress bar */
+.mem-bar {
+    width: 100%;
+    min-width: 80px;
+    height: 14px;
+    background: #e9ecef;
+    border-radius: 7px;
+    overflow: hidden;
+    position: relative;
+}
+.mem-bar-fill {
+    height: 100%;
+    border-radius: 7px;
+    background: var(--accent);
+    transition: width 0.3s;
+}
+.mem-bar-fill.high { background: var(--warning); }
+.mem-bar-fill.critical { background: var(--danger); }
+.mem-bar-text {
+    font-size: 10px;
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    text-align: center;
+    line-height: 14px;
+    color: #333;
+    font-weight: 600;
+}
+
+.result-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.result-detail-device {
+    font-weight: 600;
+    color: var(--accent);
+}
+
+/* Adjust command layout for compact device list */
+.command-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+/* Keep existing command-panel/result-panel styles */
 
 .device-status-dot {
     display: inline-block;
@@ -827,3 +1036,18 @@ select:focus, input[type="text"]:focus {
         grid-column: span 2;
     }
 }
+
+/* Broadcast canvas resize handles */
+.rs-handle {
+    position: absolute; width: 10px; height: 10px;
+    background: var(--accent); border: 1px solid #fff;
+    z-index: 10; border-radius: 2px;
+}
+.rs-nw  { top: -5px; left: -5px; cursor: nw-resize; }
+.rs-n   { top: -5px; left: 50%; margin-left: -5px; cursor: n-resize; }
+.rs-ne  { top: -5px; right: -5px; cursor: ne-resize; }
+.rs-e   { top: 50%; margin-top: -5px; right: -5px; cursor: e-resize; }
+.rs-se  { bottom: -5px; right: -5px; cursor: se-resize; }
+.rs-s   { bottom: -5px; left: 50%; margin-left: -5px; cursor: s-resize; }
+.rs-sw  { bottom: -5px; left: -5px; cursor: sw-resize; }
+.rs-w   { top: 50%; margin-top: -5px; left: -5px; cursor: w-resize; }

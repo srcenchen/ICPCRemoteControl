@@ -55,7 +55,7 @@ type CheckinMessage struct {
 	StudentNum    string `json:"student_num"`
 }
 
-// CheckinResponseMessage is the server's response to a checkin request.
+// CheckinResponseMessage is the server's response to a checkin/checkout/query request.
 type CheckinResponseMessage struct {
 	Type            string `json:"type"` // "checkin_response"
 	CorrelationID   string `json:"correlation_id"`
@@ -64,6 +64,12 @@ type CheckinResponseMessage struct {
 	PostCheckinMsg  string `json:"post_checkin_msg,omitempty"`
 	PostCheckoutCmd string `json:"post_checkout_cmd,omitempty"`
 	PostCheckoutMsg string `json:"post_checkout_msg,omitempty"`
+	// Check-in status fields (populated for checkin_query responses).
+	CheckinStatus int    `json:"checkin_status,omitempty"`
+	StudentName   string `json:"student_name,omitempty"`
+	StudentNum    string `json:"student_num,omitempty"`
+	CheckinTime   string `json:"checkin_time,omitempty"`
+	CheckoutTime  string `json:"checkout_time,omitempty"`
 }
 
 type PingMessage struct {

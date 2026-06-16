@@ -1,21 +1,24 @@
-// Commands page
+// Commands page — redesigned for 50–100 devices
+"use strict";
+
 var cmdEditor = null;
 var presetCommands = [];
-var activeBatch = null;     // { cmdIds: {}, tabs: {deviceKey: {el, status, cmdId}} } — one batch at a time
-var activeTabKey = null;
-var sessionTotal = 0;       // expected device count for progress
-var sessionCompleted = 0;   // completed device count
+var activeBatch = null;     // { cmdIds: {}, rows: {deviceKey: {el, status, cmdId, deviceId, summary}} }
+var activeRowKey = null;
+var sessionTotal = 0;
+var sessionCompleted = 0;
 var watchingCmdId = null;
 var watchPollTimer = null;
-var allDevices = [];        // cached for re-rendering device cards
+var staticDetailData = {};  // { deviceId: fullOutput } for history static output rows
 
 function loadCommands() {
     if (watchPollTimer) { clearInterval(watchPollTimer); watchPollTimer = null; }
     watchingCmdId = null;
     activeBatch = null;
-    activeTabKey = null;
+    activeRowKey = null;
     sessionTotal = 0;
     sessionCompleted = 0;
+    deviceFilter = "";
 
     $.getJSON("/api/devices", function(devices) {
         allDevices = devices;
@@ -25,60 +28,7 @@ function loadCommands() {
     });
 }
 
-function parseDeviceIP(localIP) {
-    if (!localIP) return '';
-    try {
-        var ips = JSON.parse(localIP);
-        if (Array.isArray(ips) && ips.length > 0) {
-            for (var i = 0; i < ips.length; i++) {
-                if (ips[i].defaultRoute && ips[i].ipv4) return ips[i].ipv4;
-            }
-            for (var j = 0; j < ips.length; j++) {
-                if (ips[j].ipv4) return ips[j].ipv4;
-            }
-        }
-    } catch(e) { return localIP; }
-    return '';
-}
-
-function renderDeviceCards() {
-    var html = '<div class="device-selector">';
-    html += '<div class="device-card device-card-all' + (selectedTargets.length === 0 ? ' selected' : '') + '" onclick="toggleSelectAll()">';
-    html += '<div class="device-card-check"></div>';
-    html += '<div class="device-card-name">全部设备</div>';
-    html += '<div class="device-card-meta">广播模式</div>';
-    html += '</div>';
-    allDevices.forEach(function(d) {
-        var sel = selectedTargets.indexOf(d.assigned_id) >= 0;
-        var ip = parseDeviceIP(d.local_ip);
-        html += '<div class="device-card' + (sel ? ' selected' : '') + (d.connected ? '' : ' offline') + '" onclick="toggleSelectDevice(' + d.assigned_id + ')">';
-        html += '<div class="device-card-check">' + (sel ? '✓' : '') + '</div>';
-        html += '<div class="device-card-name">#' + d.assigned_id + ' ' + escapeHtml(d.hostname || d.username) + '</div>';
-        html += '<div class="device-card-meta">';
-        html += '<span class="device-status-dot ' + (d.connected ? 'online' : '') + '"></span>';
-        html += (d.connected ? '在线' : '离线');
-        if (ip) html += ' | ' + escapeHtml(ip);
-        html += '</div>';
-        html += '</div>';
-    });
-    html += '</div>';
-    $("#device-selector-container").html(html);
-}
-
-function toggleSelectAll() {
-    selectedTargets = [];
-    renderDeviceCards();
-}
-
-function toggleSelectDevice(id) {
-    var idx = selectedTargets.indexOf(id);
-    if (idx >= 0) {
-        selectedTargets.splice(idx, 1);
-    } else {
-        selectedTargets.push(id);
-    }
-    renderDeviceCards();
-}
+// ---- Page render ----
 
 function renderCommandPage(devices) {
     allDevices = devices;
@@ -99,9 +49,8 @@ function renderCommandPage(devices) {
             '<div class="result-header">' +
                 '<div class="panel-title">执行结果</div>' +
                 '<span id="result-progress" style="font-size:12px; color:var(--text-secondary);"></span>' +
-                '<div id="tab-bar" style="display:flex; gap:4px; flex-wrap:wrap;"></div>' +
             '</div>' +
-            '<div id="result-area" style="flex:1; overflow:auto; min-height:300px;">' +
+            '<div id="result-area" style="flex:1; min-height:0; display:flex; flex-direction:column;">' +
                 '<div class="empty-state">选择目标设备并点击执行，或选择历史命令查看结果</div>' +
             '</div>' +
         '</div>' +
@@ -119,15 +68,27 @@ function renderCommandPage(devices) {
     '</div>';
 
     $("#content").html(html);
-    renderDeviceCards();
+    renderDeviceList();
     setTimeout(initCodeMirror, 100);
     loadPresets();
     loadCommandHistory();
 }
 
 function initCodeMirror() {
+    // Destroy previous instance to avoid duplicates on page re-render.
+    if (cmdEditor) {
+        var prevEl = cmdEditor.getWrapperElement();
+        if (prevEl && prevEl.parentNode) cmdEditor.toTextArea();
+        cmdEditor = null;
+    }
+
     var ta = document.getElementById("command-editor");
     if (!ta) return;
+
+    // Guard against CodeMirror already having wrapped this textarea.
+    if (ta.classList.contains("CodeMirror")) return;
+    if (ta.nextSibling && ta.nextSibling.classList && ta.nextSibling.classList.contains("CodeMirror")) return;
+
     cmdEditor = CodeMirror.fromTextArea(ta, {
         mode: "shell", theme: "eclipse", lineNumbers: true,
         lineWrapping: true, indentUnit: 2, tabSize: 2,
@@ -159,35 +120,31 @@ function executeCommand() {
     if (!command.trim()) { alert("请输入命令"); return; }
     if (selectedTargets.length === 0 && allDevices.length === 0) { alert("没有可用设备"); return; }
 
-    // Start new batch — auto-registers any arriving command IDs
-    activeBatch = { cmdIds: {}, tabs: {} };
-    activeTabKey = null;
+    activeBatch = { cmdIds: {}, rows: {} };
+    activeRowKey = null;
     sessionCompleted = 0;
-    $("#tab-bar").html('');
     $("#result-progress").text('');
-    $("#result-area").html('<div class="empty-state">正在派发...</div>');
 
     var commandText = command.trim();
 
     if (selectedTargets.length === 0) {
-        // Broadcast to all devices
+        // Broadcast
         var onlineCount = allDevices.filter(function(d) { return d.connected; }).length;
         sessionTotal = onlineCount > 0 ? onlineCount : allDevices.length;
+        $("#result-area").html(renderResultTablePlaceholder());
         $.ajax({
             url: "/api/commands", method: "POST", contentType: "application/json",
             data: JSON.stringify({ target_type: "broadcast", command: commandText }),
             success: function(cmd) {
                 activeBatch.cmdIds[cmd.id] = true;
-                $("#result-area").html('<div class="empty-state">已派发 #' + cmd.id + '，等待设备响应...</div>');
+                updateResultTableCaption("已派发广播 #" + cmd.id + "，等待设备响应...", "");
                 loadCommandHistory();
             },
-            error: function(xhr) {
-                showExecError(xhr);
-            }
+            error: function(xhr) { showExecError(xhr); }
         });
     } else {
-        // Send to each selected device individually
         sessionTotal = selectedTargets.length;
+        $("#result-area").html(renderResultTablePlaceholder());
         for (var i = 0; i < selectedTargets.length; i++) {
             (function(deviceId) {
                 $.ajax({
@@ -195,12 +152,10 @@ function executeCommand() {
                     data: JSON.stringify({ target_type: "single", target_id: deviceId, command: commandText }),
                     success: function(cmd) {
                         activeBatch.cmdIds[cmd.id] = true;
-                        $("#result-area").html('<div class="empty-state">已派发 ' + selectedTargets.length + ' 个命令，等待响应...</div>');
+                        updateResultTableCaption("已派发 " + selectedTargets.length + " 个命令，等待响应...", "");
                         loadCommandHistory();
                     },
-                    error: function(xhr) {
-                        showExecError(xhr);
-                    }
+                    error: function(xhr) { showExecError(xhr); }
                 });
             })(selectedTargets[i]);
         }
@@ -213,64 +168,128 @@ function showExecError(xhr) {
     $("#result-area").html('<div class="command-output" style="color:var(--danger)">' + escapeHtml(err) + '</div>');
 }
 
-// ---- Tab management ----
-function getOrCreateTab(deviceId, cmdId) {
-    var key = "dev_" + deviceId;
-    if (!activeBatch.tabs[key]) {
-        var el = $('<div class="command-output" style="flex:1; overflow:auto; font-size:13px; padding:8px;"></div>');
-        activeBatch.tabs[key] = { el: el, cmdId: cmdId, status: "running" };
+// ---- Result table ----
 
-        var btn = $('<button class="btn btn-sm" style="border-radius:6px 6px 0 0; margin-bottom:-1px;">#' + deviceId + '</button>');
-        btn.on("click", (function(k) { return function() { switchResultTab(k); }; })(key));
-        $("#tab-bar").append(btn);
-    }
-    return activeBatch.tabs[key];
+function renderResultTablePlaceholder() {
+    return '<div class="result-summary" style="display:flex;flex-direction:column;flex:1;min-height:0;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+            '<span id="result-table-caption" style="font-size:13px;color:var(--text-secondary);">等待设备响应...</span>' +
+            '<span id="result-table-progress" style="font-size:12px;color:var(--text-secondary);"></span>' +
+        '</div>' +
+        '<div style="flex:1;overflow-y:auto;">' +
+            '<table class="result-table">' +
+                '<thead><tr><th class="col-device">设备</th><th class="col-status">状态</th><th class="col-summary">输出摘要</th><th class="col-duration">耗时</th></tr></thead>' +
+                '<tbody id="result-tbody"></tbody>' +
+            '</table>' +
+        '</div>' +
+        '<div id="result-detail" style="display:none; margin-top:8px;"></div>' +
+    '</div>';
 }
 
-function switchResultTab(key) {
-    activeTabKey = key;
-    $("#tab-bar button").css({background:"",color:""});
-    var allKeys = Object.keys(activeBatch.tabs);
-    var idx = allKeys.indexOf(key);
-    if (idx >= 0) $("#tab-bar button").eq(idx).css({background:"var(--accent)",color:"#fff"});
+function updateResultTableCaption(caption, progress) {
+    $("#result-table-caption").text(caption);
+    $("#result-table-progress").text(progress);
+}
 
-    var tab = activeBatch.tabs[key];
-    if (!tab) return;
-    var html = tab.el.prop("outerHTML");
-    if (tab.status === "running") {
-        html = '<div style="margin-bottom:8px;"><button class="btn btn-danger btn-sm" onclick="cancelActiveCommand(\'' + key + '\')">⏹ 终止此设备</button></div>' + html;
+function getOrCreateRow(deviceId, cmdId) {
+    var key = "dev_" + deviceId;
+    if (!activeBatch.rows[key]) {
+        var row = $('<tr class="result-row running" data-key="' + key + '">' +
+            '<td class="col-device"><strong>#' + deviceId + '</strong></td>' +
+            '<td class="col-status"><span class="badge badge-running">运行中</span></td>' +
+            '<td class="col-summary"><span style="color:var(--text-secondary)">等待输出...</span></td>' +
+            '<td class="col-duration">-</td>' +
+        '</tr>');
+        row.on("click", function() { showCommandResultDetail(key); });
+        activeBatch.rows[key] = { el: row, cmdId: cmdId, status: "running", deviceId: deviceId, summary: "" };
+        $("#result-tbody").append(row);
     }
-    $("#result-area").html(html);
+    return activeBatch.rows[key];
+}
+
+function showCommandResultDetail(key) {
+    if (!activeBatch || !activeBatch.rows) return;
+    // Toggle: clicking the same row closes the detail.
+    if (activeRowKey === key) {
+        closeCommandResultDetail();
+        return;
+    }
+    activeRowKey = key;
+    $(".result-row").removeClass("active");
+    var row = activeBatch.rows[key];
+    if (!row) return;
+    row.el.addClass("active");
+
+    var detail = $("#result-detail");
+    detail.show();
+    detail.html(
+        '<div class="result-detail-header">' +
+            '<span class="result-detail-device">设备 #' + row.deviceId + ' 输出详情</span>' +
+            '<div style="display:flex;align-items:center;gap:8px;">' +
+                '<span style="font-size:11px;color:var(--text-secondary);">单击行展开 / 再次单击关闭</span>' +
+                (row.status === "running" ? '<button class="btn btn-danger btn-sm" onclick="cancelDeviceCommand(\'' + key + '\')">⏹ 终止</button>' : '') +
+                '<button class="btn btn-sm" onclick="closeCommandResultDetail()">✕</button>' +
+            '</div>' +
+        '</div>' +
+        '<div class="command-output" style="max-height:200px;">' + (row.summary ? escapeHtml(row.summary) : '<span style="color:var(--text-secondary)">(等待输出)</span>') + '</div>'
+    );
+}
+
+function updateRowStatus(key, status, durationMs) {
+    var row = activeBatch.rows[key];
+    if (!row) return;
+    row.status = status;
+    var label = statusLabel(status);
+    var badgeClass = "badge-" + status;
+    if (status === "running") badgeClass = "badge-running";
+    row.el.find(".col-status").html('<span class="badge ' + badgeClass + '">' + label + '</span>');
+    row.el.find(".col-duration").text(durationMs ? (durationMs + 'ms') : '-');
+    row.el.removeClass("running failed completed").addClass(status);
+}
+
+function updateRowSummary(key, text) {
+    var row = activeBatch.rows[key];
+    if (!row) return;
+    row.summary = text;
+    var short = text.replace(/\n/g, ' ').substring(0, 80);
+    if (text.length > 80) short += '...';
+    row.el.find(".col-summary").html('<span style="font-size:12px;">' + escapeHtml(short) + '</span>');
 }
 
 function updateProgress() {
-    if (sessionTotal <= 0) { $("#result-progress").text(''); return; }
+    if (sessionTotal <= 0) { updateResultTableCaption("等待设备响应...", ""); return; }
     var completed = 0;
-    for (var k in activeBatch.tabs) {
-        if (activeBatch.tabs[k].status !== "running") completed++;
+    for (var k in activeBatch.rows) {
+        if (activeBatch.rows[k].status !== "running") completed++;
     }
     var allDone = completed >= sessionTotal;
-    $("#result-progress")
-        .text(completed + '/' + sessionTotal + (allDone ? ' 已完成' : ''))
-        .css('color', allDone ? 'var(--success)' : 'var(--text-secondary)')
-        .css('font-weight', allDone ? '600' : 'normal');
-}
-
-function cancelActiveCommand(key) {
-    if (activeBatch && activeBatch.tabs[key]) {
-        $.ajax({ url: "/api/commands/" + activeBatch.tabs[key].cmdId + "/cancel", method: "POST" });
+    var failCount = 0;
+    for (var k2 in activeBatch.rows) {
+        if (activeBatch.rows[k2].status === "failed" || activeBatch.rows[k2].status === "timeout") failCount++;
     }
+    var prog = completed + '/' + sessionTotal;
+    if (failCount > 0) prog += ' · 失败 ' + failCount;
+    if (allDone) prog += ' ✓';
+    updateResultTableCaption("", prog);
 }
 
-// ---- Real-time streaming (called from app.js WebSocket) ----
+function closeCommandResultDetail() {
+    activeRowKey = null;
+    var detail = $("#result-detail");
+    if (detail.length) detail.hide();
+    $(".result-row").removeClass("active");
+}
 
-// isActiveEvent returns true if the event belongs to the current active batch.
+function cancelDeviceCommand(key) {
+    if (!activeBatch || !activeBatch.rows || !activeBatch.rows[key]) return;
+    $.ajax({ url: "/api/commands/" + activeBatch.rows[key].cmdId + "/cancel", method: "POST" });
+}
+
+// ---- Real-time streaming ----
+
 function isActiveEvent(evt) {
     if (!activeBatch) return false;
-    // Already registered command ID
     if (activeBatch.cmdIds[evt.command_id]) return true;
-    // For broadcast, child command IDs arrive in events but aren't registered yet.
-    // Auto-register if there's an active batch and the event has a device_id.
     if (evt.command_id && evt.device_id) {
         activeBatch.cmdIds[evt.command_id] = true;
         return true;
@@ -281,24 +300,24 @@ function isActiveEvent(evt) {
 function handleCommandOutput(evt) {
     if (isActiveEvent(evt)) {
         var key = "dev_" + evt.device_id;
-        var isNew = !activeBatch.tabs[key];
-        var tab = getOrCreateTab(evt.device_id, evt.command_id);
-        var color = evt.stream === "stderr" ? "var(--danger)" : "inherit";
-        tab.el.append('<span style="color:' + color + '">' + escapeHtml(evt.line) + '\n</span>');
-        tab.el.scrollTop(tab.el[0].scrollHeight);
-        // Auto-focus on first responding device, or refresh currently visible tab
-        if (isNew || activeTabKey === key) {
-            switchResultTab(key);
+        var row = getOrCreateRow(evt.device_id, evt.command_id);
+        row.summary += evt.line + '\n';
+        updateRowSummary(key, row.summary);
+        // Update detail view if visible
+        if (activeRowKey === key) {
+            $("#result-detail .command-output").text(row.summary);
+            var detailEl = $("#result-detail .command-output")[0];
+            if (detailEl) detailEl.scrollTop = detailEl.scrollHeight;
         }
         return;
     }
-    // Watching from history click
+    // Watching from history
     if (watchingCmdId && (evt.command_id === watchingCmdId || evt.device_id)) {
-        var el = $("#result-area .command-output");
+        var el = $("#result-detail .command-output");
         if (el.length > 0) {
             var color = evt.stream === "stderr" ? "var(--danger)" : "var(--success)";
             el.append('<span style="color:' + color + '">' + escapeHtml(evt.line) + '\n</span>');
-            el.scrollTop(el[0].scrollHeight);
+            el[0].scrollTop = el[0].scrollHeight;
         }
     }
 }
@@ -306,28 +325,20 @@ function handleCommandOutput(evt) {
 function handleCommandResult(evt) {
     if (isActiveEvent(evt)) {
         var key = "dev_" + evt.device_id;
-        var isNew = !activeBatch.tabs[key];
-        var tab = getOrCreateTab(evt.device_id, evt.command_id);
-        tab.status = evt.status || "completed";
-        // Show (无输出) if nothing was streamed before completion
-        if (isNew && !evt.error_output) {
-            tab.el.append('<span style="color:var(--text-secondary)">(无输出)</span>\n');
-        }
-        if (evt.error_output) tab.el.append('<span style="color:var(--danger)">' + escapeHtml(evt.error_output) + '\n</span>');
-        tab.el.append('\n<span style="color:var(--accent)">--- ' + statusLabel(evt.status) + ' (' + (evt.duration_ms || 0) + 'ms) ---</span>');
+        var row = getOrCreateRow(evt.device_id, evt.command_id);
+        if (!row.summary) row.summary = '';
+        if (evt.error_output) row.summary += evt.error_output + '\n';
+        updateRowSummary(key, row.summary);
+        updateRowStatus(key, evt.status || "completed", evt.duration_ms);
         sessionCompleted++;
         updateProgress();
-        // Auto-switch if new tab (device had no output) or currently viewing
-        if (isNew || activeTabKey === key) {
-            switchResultTab(key);
-        }
+        if (activeRowKey === key) showCommandResultDetail(key); // refresh visible detail
         loadCommandHistory();
         return;
     }
-    // Watching from history click
+    // Watching from history
     if (watchingCmdId && evt.command_id) {
-        var completedWatched = (evt.command_id === watchingCmdId);
-        if (completedWatched) {
+        if (evt.command_id === watchingCmdId) {
             watchingCmdId = null;
             if (watchPollTimer) { clearInterval(watchPollTimer); watchPollTimer = null; }
         }
@@ -360,8 +371,7 @@ function showCommandDetail(cmdID) {
     watchingCmdId = null;
     if (watchPollTimer) { clearInterval(watchPollTimer); watchPollTimer = null; }
     activeBatch = null;
-    $("#tab-bar").html('');
-    activeTabKey = null;
+    activeRowKey = null;
     sessionTotal = 0;
     sessionCompleted = 0;
     $("#result-progress").text('');
@@ -371,18 +381,13 @@ function showCommandDetail(cmdID) {
             if (cmdEditor) cmdEditor.setValue(cmd.command);
             else $("#command-editor").val(cmd.command);
         }
-
         renderStaticOutput(cmd);
-
         var running = (cmd.status === "dispatched" || cmd.status === "running" || cmd.status === "pending");
-        if (running) {
-            watchingCmdId = cmdID;
-        }
+        if (running) watchingCmdId = cmdID;
     });
 }
 
 function renderStaticOutput(cmd) {
-    var out = cmd.output || cmd.error_output || '';
     var running = (cmd.status === "dispatched" || cmd.status === "running" || cmd.status === "pending");
     var html = '';
 
@@ -399,24 +404,60 @@ function renderStaticOutput(cmd) {
     }
 
     if (cmd.children && cmd.children.length > 0) {
+        // Reset detail store for this history view.
+        staticDetailData = {};
+        // Render children as clickable result table.
+        html += '<div class="result-summary" style="display:flex;flex-direction:column;flex:1;min-height:0;">';
+        html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">' + cmd.children.length + ' 台设备</div>';
+        html += '<div style="flex:1;overflow-y:auto;">';
+        html += '<table class="result-table"><thead><tr><th class="col-device">设备</th><th class="col-status">状态</th><th class="col-summary">输出</th><th class="col-duration">耗时</th></tr></thead><tbody>';
         cmd.children.forEach(function(child) {
-            html += '<div style="padding:8px; margin:4px 0; background:#f8f9fa; border:1px solid var(--border); border-radius:6px;">';
-            html += '<div style="margin-bottom:4px;">';
-            html += '<strong style="color:var(--accent)">设备 #' + (child.target_id || '?') + '</strong> ';
-            html += '<span class="badge badge-' + child.status + '">' + statusLabel(child.status) + '</span>';
-            if (child.duration_ms) html += ' <small style="color:var(--text-secondary)">' + child.duration_ms + 'ms</small>';
-            html += '</div>';
-            var cOut = child.output || child.error_output || '';
-            html += '<div class="command-output" style="max-height:300px; overflow:auto;">' + (cOut ? escapeHtml(cOut) : '<span style="color:var(--text-secondary)">(无输出)</span>') + '</div>';
-            html += '</div>';
+            var fullOut = child.output || child.error_output || '';
+            var did = child.target_id || '?';
+            staticDetailData[did] = fullOut;
+            var summary = fullOut.replace(/\n/g, ' ').substring(0, 80);
+            if (!summary) summary = '<span style="color:var(--text-secondary)">(无输出)</span>';
+            html += '<tr class="result-row ' + child.status + '" data-device-id="' + did + '">' +
+                '<td class="col-device"><strong>#' + did + '</strong></td>' +
+                '<td class="col-status"><span class="badge badge-' + child.status + '">' + statusLabel(child.status) + '</span></td>' +
+                '<td class="col-summary" style="font-size:12px;">' + summary + '</td>' +
+                '<td class="col-duration">' + (child.duration_ms ? (child.duration_ms + 'ms') : '-') + '</td>' +
+            '</tr>';
         });
+        html += '</tbody></table>';
+        html += '</div>';
+        html += '<div id="result-detail" style="display:none;margin-top:8px;"></div>';
+        html += '</div>';
     } else {
-        html += '<div class="command-output" style="max-height:500px; overflow:auto;">';
+        var out = cmd.output || cmd.error_output || '';
+        html += '<div class="command-output" style="max-height:400px;">';
         html += out ? escapeHtml(out) : '<span style="color:var(--text-secondary)">(无输出)</span>';
         html += '</div>';
     }
 
     $("#result-area").html(html);
+
+    // Click to expand full output for history rows.
+    $("#result-area .result-row").off("click").on("click", function() {
+        var did = $(this).data("device-id");
+        var fullOut = staticDetailData[did] || '';
+        $(".result-row").removeClass("active");
+        $(this).addClass("active");
+        var detail = $("#result-detail");
+        detail.show();
+        detail.html(
+            '<div class="result-detail-header">' +
+                '<span class="result-detail-device">设备 #' + did + ' 输出详情</span>' +
+                '<div><button class="btn btn-sm" onclick="closeStaticDetail()">✕</button></div>' +
+            '</div>' +
+            '<div class="command-output" style="max-height:300px;">' + (fullOut ? escapeHtml(fullOut) : '<span style="color:var(--text-secondary)">(无输出)</span>') + '</div>'
+        );
+    });
+}
+
+function closeStaticDetail() {
+    $("#result-detail").hide();
+    $(".result-row").removeClass("active");
 }
 
 function cancelWatchedCommand(cmdId) {
@@ -429,7 +470,7 @@ function clearCommandHistory() {
         url: "/api/commands/clear", method: "POST",
         success: function() {
             activeBatch = null;
-            $("#tab-bar").html('');
+            activeRowKey = null;
             $("#result-area").html('<div class="empty-state">选择目标设备并点击执行，或选择历史命令查看结果</div>');
             $("#result-progress").text('');
             loadCommandHistory();

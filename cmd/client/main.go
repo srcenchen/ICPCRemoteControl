@@ -30,7 +30,7 @@ const (
 	serverFile       = "server"
 	serverDefaultURL = "icpc-server.local"
 	serverPort       = "8081"
-	writeBufSize     = 128
+	writeBufSize     = 256
 )
 
 //go:embed checkin_page.html
@@ -47,6 +47,7 @@ var (
 var (
 	checkinMu      sync.Mutex
 	checkinWaiters = make(map[string]chan model.CheckinResponseMessage)
+	configWaiters  = make(map[string]chan model.CheckinConfigMessage)
 )
 
 // clientState holds mutable state that the HTTP handler needs to access.
@@ -91,11 +92,17 @@ func main() {
 	// Start the check-in HTTP server on port 8090.
 	go startCheckinServer()
 
-	serverAddr := resolveServer(*serverFlag)
-	log.Printf("[client] server: %s", serverAddr)
 	storedID := readStoredID()
 
 	for {
+		serverAddr, err := resolveServer(*serverFlag)
+		if err != nil {
+			log.Printf("[client] %v — retrying in %v", err, retryInterval)
+			time.Sleep(retryInterval)
+			continue
+		}
+		log.Printf("[client] server: %s", serverAddr)
+
 		if err := connectAndServe(serverAddr, storedID); err != nil {
 			log.Printf("[client] error: %v", err)
 		}
@@ -138,56 +145,161 @@ func serveCheckinPage(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCheckinInfo returns the current device info for the check-in page.
+// It queries the server for the latest config AND check-in status on every request,
+// so the page always reflects the server's authoritative state.
 func handleCheckinInfo(w http.ResponseWriter, r *http.Request) {
 	state.mu.Lock()
 	assignedID := state.assignedID
 	hostname := state.hostname
 	macAddr := state.macAddr
 	ipAddr := state.ipAddr
-	checkinStatus := state.checkinStatus
-	studentName := state.studentName
-	studentNum := state.studentNum
-	checkinTime := state.checkinTime
-	checkoutTime := state.checkoutTime
-	welcomeText := state.welcomeText
-	warningText := state.warningText
-	postCheckinMsg := state.postCheckinMsg
-	postCheckoutMsg := state.postCheckoutMsg
+	sendCh := state.send
 	state.mu.Unlock()
+
+	// Fetch fresh config and check-in status from server on every request.
+	welcomeText, warningText, postCheckinMsg, postCheckoutMsg := fetchCheckinConfig(sendCh)
+	checkinStatus, studentName, studentNum, checkinTime, checkoutTime := fetchCheckinStatus(sendCh)
 
 	if assignedID == 0 {
 		writeClientJSON(w, http.StatusOK, map[string]interface{}{
-			"code":             -1,
-			"message":          "设备尚未注册到服务器，请等待连接建立",
-			"assigned_id":      0,
-			"hostname":         hostname,
-			"mac_address":      macAddr,
-			"ip_address":       ipAddr,
-			"checkin_status":   0,
-			"welcome_text":     welcomeText,
-			"warning_text":     warningText,
-			"post_checkin_msg": postCheckinMsg,
+			"code":              -1,
+			"message":           "设备尚未注册到服务器，请等待连接建立",
+			"assigned_id":       0,
+			"hostname":          hostname,
+			"mac_address":       macAddr,
+			"ip_address":        ipAddr,
+			"checkin_status":    0,
+			"welcome_text":      welcomeText,
+			"warning_text":      warningText,
+			"post_checkin_msg":  postCheckinMsg,
 			"post_checkout_msg": postCheckoutMsg,
 		})
 		return
 	}
 
 	writeClientJSON(w, http.StatusOK, map[string]interface{}{
-		"code":             checkinStatus,
-		"assigned_id":      assignedID,
-		"hostname":         hostname,
-		"mac_address":      macAddr,
-		"ip_address":       ipAddr,
-		"checkin_status":   checkinStatus,
-		"student_name":     studentName,
-		"student_num":      studentNum,
-		"checkin_time":     checkinTime,
-		"checkout_time":    checkoutTime,
-		"welcome_text":     welcomeText,
-		"warning_text":     warningText,
-		"post_checkin_msg": postCheckinMsg,
+		"code":              checkinStatus,
+		"assigned_id":       assignedID,
+		"hostname":          hostname,
+		"mac_address":       macAddr,
+		"ip_address":        ipAddr,
+		"checkin_status":    checkinStatus,
+		"student_name":      studentName,
+		"student_num":       studentNum,
+		"checkin_time":      checkinTime,
+		"checkout_time":     checkoutTime,
+		"welcome_text":      welcomeText,
+		"warning_text":      warningText,
+		"post_checkin_msg":  postCheckinMsg,
 		"post_checkout_msg": postCheckoutMsg,
 	})
+}
+
+// fetchCheckinConfig requests the latest check-in config from the server via TCP.
+// Falls back to cached values if the TCP channel is unavailable or the request times out.
+func fetchCheckinConfig(sendCh chan<- []byte) (welcome, warning, postCheckin, postCheckout string) {
+	if sendCh == nil {
+		// TCP not connected yet, use cached values.
+		state.mu.Lock()
+		welcome = state.welcomeText
+		warning = state.warningText
+		postCheckin = state.postCheckinMsg
+		postCheckout = state.postCheckoutMsg
+		state.mu.Unlock()
+		return
+	}
+
+	corrID := fmt.Sprintf("cfg_%d", time.Now().UnixNano())
+	respCh := make(chan model.CheckinConfigMessage, 1)
+
+	checkinMu.Lock()
+	configWaiters[corrID] = respCh
+	checkinMu.Unlock()
+
+	sendJSONSafe(sendCh, model.CheckinConfigMessage{
+		Type:          "query_checkin_config",
+		CorrelationID: corrID,
+	})
+
+	select {
+	case cfg := <-respCh:
+		// Update the cache with fresh values.
+		state.mu.Lock()
+		state.welcomeText = cfg.WelcomeText
+		state.warningText = cfg.WarningText
+		state.postCheckinMsg = cfg.PostCheckinMsg
+		state.postCheckoutMsg = cfg.PostCheckoutMsg
+		state.mu.Unlock()
+		return cfg.WelcomeText, cfg.WarningText, cfg.PostCheckinMsg, cfg.PostCheckoutMsg
+	case <-time.After(2 * time.Second):
+		// Timeout – clean up and fall back to cached values.
+		checkinMu.Lock()
+		delete(configWaiters, corrID)
+		checkinMu.Unlock()
+	}
+
+	// Fallback to cached values.
+	state.mu.Lock()
+	welcome = state.welcomeText
+	warning = state.warningText
+	postCheckin = state.postCheckinMsg
+	postCheckout = state.postCheckoutMsg
+	state.mu.Unlock()
+	return
+}
+
+// fetchCheckinStatus queries the server for the current check-in status of this device.
+// Falls back to cached values if the TCP channel is unavailable or the request times out.
+func fetchCheckinStatus(sendCh chan<- []byte) (status int, name, num, timeIn, timeOut string) {
+	if sendCh == nil {
+		state.mu.Lock()
+		status = state.checkinStatus
+		name = state.studentName
+		num = state.studentNum
+		timeIn = state.checkinTime
+		timeOut = state.checkoutTime
+		state.mu.Unlock()
+		return
+	}
+
+	corrID := fmt.Sprintf("qstat_%d", time.Now().UnixNano())
+	respCh := make(chan model.CheckinResponseMessage, 1)
+
+	checkinMu.Lock()
+	checkinWaiters[corrID] = respCh
+	checkinMu.Unlock()
+
+	sendJSONSafe(sendCh, model.CheckinMessage{
+		Type:          "checkin_query",
+		CorrelationID: corrID,
+	})
+
+	select {
+	case resp := <-respCh:
+		// Update local cache with server's authoritative state.
+		state.mu.Lock()
+		state.checkinStatus = resp.CheckinStatus
+		state.studentName = resp.StudentName
+		state.studentNum = resp.StudentNum
+		state.checkinTime = resp.CheckinTime
+		state.checkoutTime = resp.CheckoutTime
+		state.mu.Unlock()
+		return resp.CheckinStatus, resp.StudentName, resp.StudentNum, resp.CheckinTime, resp.CheckoutTime
+	case <-time.After(2 * time.Second):
+		checkinMu.Lock()
+		delete(checkinWaiters, corrID)
+		checkinMu.Unlock()
+	}
+
+	// Fallback to cached values.
+	state.mu.Lock()
+	status = state.checkinStatus
+	name = state.studentName
+	num = state.studentNum
+	timeIn = state.checkinTime
+	timeOut = state.checkoutTime
+	state.mu.Unlock()
+	return
 }
 
 // handleCheckinSubmit receives the check-in form POST and forwards it to the server via TCP.
@@ -348,21 +460,20 @@ func writeClientJSON(w http.ResponseWriter, status int, v interface{}) {
 
 // ---- Server Discovery ----
 
-func resolveServer(flagAddr string) string {
+func resolveServer(flagAddr string) (string, error) {
 	if flagAddr != "" {
-		return ensurePort(flagAddr)
+		return ensurePort(flagAddr), nil
 	}
 	addrs, _ := net.LookupHost(serverDefaultURL)
 	if len(addrs) > 0 {
-		return net.JoinHostPort(addrs[0], serverPort)
+		return net.JoinHostPort(addrs[0], serverPort), nil
 	}
 	home, _ := os.UserHomeDir()
 	data, _ := os.ReadFile(filepath.Join(home, serverFile))
 	if len(data) > 0 {
-		return ensurePort(strings.TrimSpace(string(data)))
+		return ensurePort(strings.TrimSpace(string(data))), nil
 	}
-	log.Fatal("[client] cannot resolve server")
-	return ""
+	return "", fmt.Errorf("cannot resolve server: mDNS lookup of %q failed and %s file is empty/missing", serverDefaultURL, filepath.Join(home, serverFile))
 }
 
 func ensurePort(addr string) string {
@@ -429,10 +540,21 @@ func connectAndServe(serverAddr string, storedID *int) error {
 	}
 	defer conn.Close()
 
+	// Enable TCP keepalive so the OS detects dead connections within seconds.
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpConn.SetKeepAlive(true)
+		tcpConn.SetKeepAlivePeriod(5 * time.Second)
+	}
+
 	// Single write channel serializes all writes to conn.
 	send := make(chan []byte, writeBufSize)
 	writeDone := make(chan struct{})
-	defer close(send) // ensure write goroutine exits on any return path
+	sendClosed := false
+	defer func() {
+		if !sendClosed {
+			close(send)
+		}
+	}()
 
 	// Register the send channel for HTTP handler access.
 	state.mu.Lock()
@@ -489,7 +611,6 @@ func connectAndServe(serverAddr string, storedID *int) error {
 	sendJSON(send, sysInfo)
 
 	log.Println("[client] ready")
-	conn.SetDeadline(time.Time{})
 
 	// --- Main loop ---
 	done := make(chan struct{})
@@ -515,9 +636,19 @@ func connectAndServe(serverAddr string, storedID *int) error {
 	}()
 
 	for {
+		// Read deadline: if no message (ping, command, etc.) within 30s, assume dead.
+		conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			<-writeDone
+			// Close send immediately so the write pump stops accepting new messages,
+			// then wait at most 1s for it to drain. On a dead connection, writes fail
+			// instantly (RST), so this completes quickly.
+			close(send)
+			sendClosed = true
+			select {
+			case <-writeDone:
+			case <-time.After(time.Second):
+			}
 			if err == io.EOF {
 				return fmt.Errorf("server closed connection")
 			}
@@ -605,6 +736,16 @@ func connectAndServe(serverAddr string, storedID *int) error {
 				log.Printf("[client] unmarshal checkin_config: %v", err)
 				continue
 			}
+			// If this is a response to a query, deliver to the waiter.
+			if cfg.CorrelationID != "" {
+				checkinMu.Lock()
+				if ch, ok := configWaiters[cfg.CorrelationID]; ok {
+					ch <- cfg
+					delete(configWaiters, cfg.CorrelationID)
+				}
+				checkinMu.Unlock()
+			}
+			// Always update the local cache (handles both push and query response).
 			state.mu.Lock()
 			state.welcomeText = cfg.WelcomeText
 			state.warningText = cfg.WarningText

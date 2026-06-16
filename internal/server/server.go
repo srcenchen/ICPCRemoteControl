@@ -41,6 +41,7 @@ type Config struct {
 	SettingsH   *service.SettingsHandler
 	NetworkH    *service.NetworkHandler
 	CheckinH    *service.CheckinHandler
+	BroadcastH  *service.BroadcastHandler
 }
 
 // New creates a new Server.
@@ -76,7 +77,32 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("POST /api/checkin/{id}/checkout", cfg.CheckinH.DoCheckout)
 	mux.HandleFunc("POST /api/checkin/{id}/reset", cfg.CheckinH.Reset)
 	mux.HandleFunc("POST /api/checkin/swap", cfg.CheckinH.Swap)
+	mux.HandleFunc("POST /api/checkin/reset-all", cfg.CheckinH.ResetAll)
 
+	// Broadcast management API.
+	if cfg.BroadcastH != nil {
+		mux.HandleFunc("GET /api/broadcast/pages", cfg.BroadcastH.ListPages)
+		mux.HandleFunc("POST /api/broadcast/pages", cfg.BroadcastH.CreatePage)
+		mux.HandleFunc("PUT /api/broadcast/pages/{id}", cfg.BroadcastH.UpdatePage)
+		mux.HandleFunc("DELETE /api/broadcast/pages/{id}", cfg.BroadcastH.DeletePage)
+		mux.HandleFunc("PUT /api/broadcast/pages/reorder", cfg.BroadcastH.ReorderPages)
+		mux.HandleFunc("GET /api/broadcast/items", cfg.BroadcastH.ListItems)
+		mux.HandleFunc("POST /api/broadcast/items", cfg.BroadcastH.CreateItem)
+		mux.HandleFunc("PUT /api/broadcast/items/{id}", cfg.BroadcastH.UpdateItem)
+		mux.HandleFunc("PATCH /api/broadcast/items/{id}/position", cfg.BroadcastH.UpdateItemPosition)
+		mux.HandleFunc("DELETE /api/broadcast/items/{id}", cfg.BroadcastH.DeleteItem)
+		mux.HandleFunc("GET /api/broadcast/fonts", cfg.BroadcastH.ListFonts)
+		mux.HandleFunc("POST /api/broadcast/fonts", cfg.BroadcastH.UploadFont)
+		mux.HandleFunc("DELETE /api/broadcast/fonts/{id}", cfg.BroadcastH.DeleteFont)
+		mux.HandleFunc("POST /api/broadcast/images/upload", cfg.BroadcastH.UploadImage)
+		mux.HandleFunc("GET /api/broadcast/config", cfg.BroadcastH.GetConfig)
+		mux.HandleFunc("PUT /api/broadcast/config", cfg.BroadcastH.UpdateConfig)
+		mux.HandleFunc("GET /api/broadcast/config/countdown", cfg.BroadcastH.GetCountdown)
+		mux.HandleFunc("GET /broadcast/fonts/{filename}", cfg.BroadcastH.ServeFont)
+		mux.HandleFunc("GET /broadcast/images/{filename}", cfg.BroadcastH.ServeImage)
+	}
+
+	mux.HandleFunc("GET /ws/broadcast", service.BroadcastWS.Serve)
 	mux.HandleFunc("GET /ws/admin", cfg.AdminWSH.Serve)
 	mux.HandleFunc("GET /ws/terminal/{id}", cfg.TerminalWSH.Serve)
 
@@ -85,7 +111,28 @@ func New(cfg Config) *Server {
 		panic("failed to get web sub filesystem: " + err.Error())
 	}
 	fileServer := http.FileServer(http.FS(webSubFS))
-	mux.Handle("GET /", fileServer)
+	// Disable browser caching so embedded asset updates take effect immediately.
+	noCacheFS := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		fileServer.ServeHTTP(w, r)
+	})
+
+	// Broadcast display pages — serve .html without extension for clean URLs.
+	broadcastFS := noCacheFS
+	mux.HandleFunc("GET /broadcast/before", func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Path = "/broadcast/before.html"
+		broadcastFS.ServeHTTP(w, r)
+	})
+	mux.HandleFunc("GET /broadcast/contesting", func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Path = "/broadcast/contesting.html"
+		broadcastFS.ServeHTTP(w, r)
+	})
+	mux.HandleFunc("GET /broadcast/after", func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Path = "/broadcast/after.html"
+		broadcastFS.ServeHTTP(w, r)
+	})
+
+	mux.Handle("GET /", noCacheFS)
 
 	var handler http.Handler = mux
 	handler = Recovery(Logger(handler))

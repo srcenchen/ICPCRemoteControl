@@ -101,6 +101,53 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE devices ADD COLUMN checkin_time TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN checkout_time TEXT NOT NULL DEFAULT ''`,
 		`CREATE INDEX IF NOT EXISTS idx_devices_checkin_status ON devices(checkin_status)`,
+		`CREATE TABLE IF NOT EXISTS settings (
+			key   TEXT PRIMARY KEY,
+			value TEXT NOT NULL DEFAULT ''
+		)`,
+		// Broadcast system tables.
+		`CREATE TABLE IF NOT EXISTS broadcast_config (
+			key   TEXT PRIMARY KEY,
+			value TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS broadcast_fonts (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			name          TEXT NOT NULL,
+			filename      TEXT NOT NULL UNIQUE,
+			original_name TEXT NOT NULL,
+			format        TEXT NOT NULL,
+			uploaded_at   TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS broadcast_pages (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			mode        TEXT NOT NULL,
+			title       TEXT NOT NULL DEFAULT '',
+			sort_order  INTEGER NOT NULL DEFAULT 0,
+			duration_ms INTEGER NOT NULL DEFAULT 10000,
+			bg_color    TEXT NOT NULL DEFAULT '#000000',
+			transition  TEXT NOT NULL DEFAULT 'fade'
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_broadcast_pages_mode ON broadcast_pages(mode)`,
+		`CREATE TABLE IF NOT EXISTS broadcast_items (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			page_id       INTEGER NOT NULL,
+			item_type     TEXT NOT NULL,
+			content       TEXT NOT NULL DEFAULT '',
+			pos_x         REAL NOT NULL DEFAULT 0,
+			pos_y         REAL NOT NULL DEFAULT 0,
+			width         REAL NOT NULL DEFAULT 20,
+			height        REAL NOT NULL DEFAULT 10,
+			font_size     TEXT NOT NULL DEFAULT '48px',
+			font_color    TEXT NOT NULL DEFAULT '#ffffff',
+			font_weight   TEXT NOT NULL DEFAULT 'normal',
+			text_align    TEXT NOT NULL DEFAULT 'center',
+			bg_color      TEXT NOT NULL DEFAULT 'transparent',
+			border_radius TEXT NOT NULL DEFAULT '0',
+			animation     TEXT NOT NULL DEFAULT '',
+			z_index       INTEGER NOT NULL DEFAULT 0,
+			extra_json    TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_broadcast_items_page ON broadcast_items(page_id)`,
 	}
 
 	for _, stmt := range stmts {

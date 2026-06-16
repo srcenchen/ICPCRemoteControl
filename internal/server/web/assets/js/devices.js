@@ -9,15 +9,19 @@ function loadDevices() {
 
 function renderDevices(devices) {
     var rows = devices.length === 0
-        ? '<tr><td colspan="7" class="empty-state">暂无已注册设备</td></tr>'
+        ? '<tr><td colspan="10" class="empty-state">暂无已注册设备</td></tr>'
         : devices.map(function(d) {
+            var checkinLabel = getCheckinStatusLabel(d.checkin_status);
+            var studentInfo = d.student_name ? escapeHtml(d.student_name) + ' <small style="color:var(--text-secondary)">' + escapeHtml(d.student_num) + '</small>' : '-';
             return '<tr class="clickable-row" onclick="showDeviceDetail(' + d.assigned_id + ')">' +
                 '<td><strong>#' + d.assigned_id + '</strong></td>' +
                 '<td>' + escapeHtml(d.hostname) + '</td>' +
                 '<td>' + escapeHtml(d.username) + '</td>' +
                 '<td>' + escapeHtml(d.os_name) + '</td>' +
                 '<td>' + escapeHtml(d.cpu_model) + '</td>' +
-                '<td>' + formatBytes(d.memory_total) + '</td>' +
+                '<td>' + renderMemBar(d.memory_used, d.memory_total) + '</td>' +
+                '<td>' + checkinLabel + '</td>' +
+                '<td>' + studentInfo + '</td>' +
                 '<td><span class="badge badge-' + (d.connected ? 'online' : 'offline') + '">' + (d.connected ? '在线' : '离线') + '</span></td>' +
                 '</tr>';
         }).join("");
@@ -31,7 +35,7 @@ function renderDevices(devices) {
             '<table>' +
                 '<thead>' +
                     '<tr>' +
-                        '<th>ID</th><th>主机名</th><th>用户</th><th>操作系统</th><th>CPU</th><th>内存</th><th>状态</th>' +
+                        '<th>ID</th><th>主机名</th><th>用户</th><th>操作系统</th><th>CPU</th><th style="min-width:140px;">内存</th><th>签到</th><th>学生</th><th>状态</th>' +
                     '</tr>' +
                 '</thead>' +
                 '<tbody>' + rows + '</tbody>' +
@@ -143,6 +147,16 @@ function deleteDevice(assignedID) {
         },
         error: function() { alert("删除设备失败"); }
     });
+}
+
+function renderMemBar(used, total) {
+    if (!total || total <= 0) return formatBytes(total || 0);
+    var pct = Math.round(used / total * 100);
+    var cls = pct > 90 ? 'critical' : (pct > 70 ? 'high' : '');
+    return '<div class="mem-bar">' +
+        '<div class="mem-bar-fill ' + cls + '" style="width:' + pct + '%"></div>' +
+        '<div class="mem-bar-text">' + formatBytes(used) + ' / ' + formatBytes(total) + '</div>' +
+        '</div>';
 }
 
 function getCheckinStatusLabel(status) {

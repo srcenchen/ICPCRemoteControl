@@ -48,6 +48,7 @@ type DeviceSummary struct {
 	OSName        string `json:"os_name"`
 	CPUModel      string `json:"cpu_model"`
 	MemoryTotal   int64  `json:"memory_total"`
+	MemoryUsed    int64  `json:"memory_used"`
 	LocalIP       string `json:"local_ip"`
 	Connected     bool   `json:"connected"`
 	LastSeen      string `json:"last_seen"`

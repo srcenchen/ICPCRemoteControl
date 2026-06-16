@@ -323,7 +323,6 @@
             .then(function(r) { return r.json(); })
             .then(function(resp) {
                 if (resp.success) {
-                    alert(resp.message || '签到成功！');
                     location.reload();
                 } else {
                     showMsg('checkin-result', resp.message || '签到失败，请重试', 'error');
@@ -350,7 +349,6 @@
                 .then(function(r) { return r.json(); })
                 .then(function(resp) {
                     if (resp.success) {
-                        alert(resp.message || '签退成功！');
                         location.reload();
                     } else {
                         showMsg('checkout-result', resp.message || '签退失败，请重试', 'error');
