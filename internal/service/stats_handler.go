@@ -25,6 +25,12 @@ func (h *StatsHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_, checkedIn, _, err := h.deviceRepo.GetCheckinStats()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
 	totalCommands, err := h.commandRepo.GetTotalCount()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -38,11 +44,12 @@ func (h *StatsHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stats := map[string]interface{}{
-		"total_devices":   total,
-		"online_devices":  online,
-		"offline_devices": total - online,
-		"total_commands":  totalCommands,
-		"recent_commands": recentCommands,
+		"total_devices":    total,
+		"online_devices":   online,
+		"offline_devices":  total - online,
+		"checked_in":       checkedIn,
+		"total_commands":   totalCommands,
+		"recent_commands":  recentCommands,
 	}
 	writeJSON(w, http.StatusOK, stats)
 }

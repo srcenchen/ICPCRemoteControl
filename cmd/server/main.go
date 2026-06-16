@@ -19,6 +19,7 @@ func main() {
 	bind := flag.String("bind", "", "IP address for avahi mDNS (auto-detect if empty)")
 	avahi := flag.Bool("avahi", true, "enable avahi mDNS publishing")
 	listIfaces := flag.Bool("list-interfaces", false, "list available network interfaces and exit")
+	hostnamePrefix := flag.String("hostname-prefix", "cwxu-icpc", "hostname prefix for client machines (e.g. 'cwxu-icpc' → 'cwxu-icpc-1')")
 	flag.Parse()
 
 	if *listIfaces {
@@ -53,19 +54,24 @@ func main() {
 		log.Printf("[main] warning: failed to mark devices offline: %v", err)
 	}
 
+	settings := service.NewServerSettings(*hostnamePrefix)
+
 	idAssigner := biz.NewIDAssigner(deviceRepo)
 	hub := biz.NewHub(deviceRepo)
 	dispatcher := biz.NewCommandDispatcher(hub, commandRepo)
 
 	// HTTP + Admin WS.
 	deviceHandler := service.NewDeviceHandler(deviceRepo, hub)
-	commandHandler := service.NewCommandHandler(commandRepo, dispatcher, hub)
+	commandHandler := service.NewCommandHandler(commandRepo, dispatcher, hub, settings)
 	statsHandler := service.NewStatsHandler(deviceRepo, commandRepo)
 	adminWSHandler := service.NewAdminWSHandler(hub)
 	terminalWSH := service.NewTerminalWSHandler(hub)
+	settingsHandler := service.NewSettingsHandler(settings)
+	networkHandler := service.NewNetworkHandler(settings, hub, commandRepo, dispatcher)
+	checkinHandler := service.NewCheckinHandler(deviceRepo)
 
 	// TCP handler for client connections.
-	tcpHandler := service.NewTCPHandler(hub, deviceRepo, commandRepo, idAssigner, dispatcher)
+	tcpHandler := service.NewTCPHandler(hub, deviceRepo, commandRepo, idAssigner, dispatcher, settings)
 
 	// Start TCP listener in background.
 	go func() {
@@ -85,6 +91,9 @@ func main() {
 		StatsH:    statsHandler,
 		AdminWSH:    adminWSHandler,
 		TerminalWSH: terminalWSH,
+		SettingsH:   settingsHandler,
+		NetworkH:    networkHandler,
+		CheckinH:    checkinHandler,
 	}
 
 	srv := server.New(cfg)

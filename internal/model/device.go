@@ -33,16 +33,25 @@ type Device struct {
 	LastSeen         string `json:"last_seen"`
 	FirstSeen        string `json:"first_seen"`
 	UpdatedAt        string `json:"updated_at"`
+	CheckinStatus    int    `json:"checkin_status"` // 0=未签到, 1=已签到, 2=已签退
+	StudentName      string `json:"student_name"`
+	StudentNum       string `json:"student_num"`
+	CheckinTime      string `json:"checkin_time"`
+	CheckoutTime     string `json:"checkout_time"`
 }
 
 // DeviceSummary is a lightweight view for list endpoints.
 type DeviceSummary struct {
-	AssignedID  int    `json:"assigned_id"`
-	Hostname    string `json:"hostname"`
-	Username    string `json:"username"`
-	OSName      string `json:"os_name"`
-	CPUModel    string `json:"cpu_model"`
-	MemoryTotal int64  `json:"memory_total"`
-	Connected   bool   `json:"connected"`
-	LastSeen    string `json:"last_seen"`
+	AssignedID    int    `json:"assigned_id"`
+	Hostname      string `json:"hostname"`
+	Username      string `json:"username"`
+	OSName        string `json:"os_name"`
+	CPUModel      string `json:"cpu_model"`
+	MemoryTotal   int64  `json:"memory_total"`
+	LocalIP       string `json:"local_ip"`
+	Connected     bool   `json:"connected"`
+	LastSeen      string `json:"last_seen"`
+	CheckinStatus int    `json:"checkin_status"`
+	StudentName   string `json:"student_name"`
+	StudentNum    string `json:"student_num"`
 }

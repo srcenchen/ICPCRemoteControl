@@ -1,7 +1,10 @@
+//go:build ignore
+
 // ICPC Remote Control System
 //
-// Server:  go run ./cmd/server.go
-// Client:  go run ./cmd/client.go
+// Build:
+//   server:  go build -o server ./cmd/server
+//   client:  go build -o client ./cmd/client
 package main
 
 func main() {}

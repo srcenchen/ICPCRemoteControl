@@ -15,11 +15,12 @@ type CommandHandler struct {
 	repo       *data.CommandRepo
 	dispatcher *biz.CommandDispatcher
 	hub        *biz.Hub
+	settings   *ServerSettings
 }
 
 // NewCommandHandler creates a new CommandHandler.
-func NewCommandHandler(repo *data.CommandRepo, dispatcher *biz.CommandDispatcher, hub *biz.Hub) *CommandHandler {
-	return &CommandHandler{repo: repo, dispatcher: dispatcher, hub: hub}
+func NewCommandHandler(repo *data.CommandRepo, dispatcher *biz.CommandDispatcher, hub *biz.Hub, settings *ServerSettings) *CommandHandler {
+	return &CommandHandler{repo: repo, dispatcher: dispatcher, hub: hub, settings: settings}
 }
 
 // ExecuteRequest is the JSON body for POST /api/commands.
@@ -39,6 +40,11 @@ func (h *CommandHandler) Execute(w http.ResponseWriter, r *http.Request) {
 
 	if req.Command == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "command is required"})
+		return
+	}
+	const maxCommandLen = 64 * 1024 // 64KB
+	if len(req.Command) > maxCommandLen {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "command too long"})
 		return
 	}
 	if req.TargetType != "single" && req.TargetType != "broadcast" {
@@ -179,59 +185,7 @@ func (h *CommandHandler) sendCancelToClient(cmd *model.CommandLog) {
 	}
 }
 
-// PresetCommand is a named preset command.
-type PresetCommand struct {
-	Name    string `json:"name"`
-	Desc    string `json:"desc"`
-	Command string `json:"command"`
-	Color   string `json:"color"` // button color hint: danger, warning, success, primary
-}
-
 // Presets returns the list of preset commands (GET /api/presets).
 func (h *CommandHandler) Presets(w http.ResponseWriter, r *http.Request) {
-	presets := []PresetCommand{
-		{
-			Name:    "锁定键鼠",
-			Desc:    "禁止所有输入设备（键盘、鼠标）",
-			Command: "mkdir -p /etc/udev/rules.d && echo 'ACTION==\"add|change\", SUBSYSTEM==\"input\", ENV{LIBINPUT_IGNORE_DEVICE}=\"1\"' > /etc/udev/rules.d/99-icpc-lock.rules && udevadm control --reload-rules && udevadm trigger --subsystem-match=input && echo '键鼠已锁定'",
-			Color:   "danger",
-		},
-		{
-			Name:    "解锁键鼠",
-			Desc:    "恢复所有输入设备",
-			Command: "rm -f /etc/udev/rules.d/99-icpc-lock.rules && udevadm control --reload-rules && udevadm trigger --subsystem-match=input && echo '键鼠已解锁'",
-			Color:   "success",
-		},
-		{
-			Name:    "锁屏",
-			Desc:    "锁定屏幕（需要桌面环境支持）",
-			Command: "loginctl lock-sessions 2>/dev/null || xdg-screensaver lock 2>/dev/null || echo '无法锁屏'",
-			Color:   "warning",
-		},
-		{
-			Name:    "解锁",
-			Desc:    "锁定屏幕（需要桌面环境支持）",
-			Command: "loginctl unlock-sessions 2>/dev/null || \\\nDISPLAY=:0 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(pgrep -u $(whoami) -x kded5 || echo 1000)/bus qdbus org.freedesktop.ScreenSaver /ScreenSaver SetActive false 2>/dev/null || \\\npkill -9 -f kscreenlocker_greet 2>/dev/null || \\\necho '无法解锁'",
-			Color:   "success",
-		},
-		{
-			Name:    "关机",
-			Desc:    "立即关闭选手机",
-			Command: "shutdown now",
-			Color:   "danger",
-		},
-		{
-			Name:    "重启",
-			Desc:    "立即重启选手机",
-			Command: "reboot",
-			Color:   "warning",
-		},
-		{
-			Name:    "同步时间",
-			Desc:    "从服务器同步系统时间",
-			Command: "timedatectl set-ntp true 2>/dev/null && echo 'NTP 已启用' || echo '时间同步设置失败'",
-			Color:   "primary",
-		},
-	}
-	writeJSON(w, http.StatusOK, presets)
+	writeJSON(w, http.StatusOK, h.settings.GetPresets())
 }

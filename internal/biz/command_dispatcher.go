@@ -101,7 +101,11 @@ func (d *CommandDispatcher) UpdateBroadcastParentStatus(parentID int64) {
 			return
 		}
 		totalDuration += child.DurationMS
-		outputs += fmt.Sprintf("--- Device #%d ---\n%s", *child.TargetID, child.Output)
+		targetID := 0
+		if child.TargetID != nil {
+			targetID = *child.TargetID
+		}
+		outputs += fmt.Sprintf("--- Device #%d ---\n%s", targetID, child.Output)
 		if child.ErrorOutput != "" {
 			outputs += fmt.Sprintf("\n[stderr] %s", child.ErrorOutput)
 		}

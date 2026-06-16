@@ -90,7 +90,9 @@ function renderDeviceDetail(device) {
                     '<div class="detail-item"><div class="label">终端</div><div class="value">' + escapeHtml(device.terminal) + '</div></div>' +
                     '<div class="detail-item"><div class="label">桌面环境</div><div class="value">' + escapeHtml(device.de_name) + '</div></div>' +
                     '<div class="detail-item"><div class="label">窗口管理器</div><div class="value">' + escapeHtml(device.wm_name) + '</div></div>' +
-                    '<div class="detail-item"><div class="label">运行时间</div><div class="value">' + Math.floor(device.uptime / 3600) + '时 ' + Math.floor((device.uptime % 3600) / 60) + '分</div></div>' +
+                    '<div class="detail-item"><div class="label">运行时间</div><div class="value">' + Math.floor(device.uptime / 60) + '时 ' + (device.uptime % 60) + '分</div></div>' +
+                    '<div class="detail-item"><div class="label">签到状态</div><div class="value">' + getCheckinStatusLabel(device.checkin_status) + '</div></div>' +
+                    '<div class="detail-item"><div class="label">学生信息</div><div class="value">' + (device.student_name ? escapeHtml(device.student_name) + ' (' + escapeHtml(device.student_num) + ')' : '-') + '</div></div>' +
                 '</div>' +
 
                 '<h3 style="margin-top:20px; color:var(--accent)">硬件信息</h3>' +
@@ -111,10 +113,10 @@ function renderDeviceDetail(device) {
                 '</div>' +
 
                 '<div style="margin-top:24px; display:flex; gap:12px;">' +
-                    '<button class="btn btn-primary" onclick="navigateTo(\'commands\'); selectTarget(' + device.assigned_id + ');">' +
+                    '<button class="btn btn-primary" onclick="selectedTargets=[' + device.assigned_id + ']; navigateTo(\'commands\');">' +
                         '在此设备执行命令' +
                     '</button>' +
-                    '<button class="btn btn-sm" style="background:var(--accent);color:#000;" onclick="openTerminal(' + device.assigned_id + ')">🖥 终端</button>' +
+                    '<button class="btn btn-sm" style="background:var(--accent);color:#fff;" onclick="openTerminal(' + device.assigned_id + ')">🖥 终端</button>' +
                     '<button class="btn btn-danger btn-sm" onclick="deleteDevice(' + device.assigned_id + ')">移除设备</button>' +
                 '</div>' +
             '</div>' +
@@ -141,6 +143,12 @@ function deleteDevice(assignedID) {
         },
         error: function() { alert("删除设备失败"); }
     });
+}
+
+function getCheckinStatusLabel(status) {
+    if (status === 1) return '<span class="badge badge-online">已签到</span>';
+    if (status === 2) return '<span class="badge badge-pending">已签退</span>';
+    return '<span class="badge badge-offline">未签到</span>';
 }
 
 function resetAllDevices() {

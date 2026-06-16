@@ -75,7 +75,7 @@ func (h *TerminalHubManager) Broadcast(sessionID string, data interface{}) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	for conn := range s.Conns {
-		conn.SetWriteDeadline(time.Time{}) // no deadline for terminal
+		conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		if err := conn.WriteMessage(websocket.BinaryMessage, msg); err != nil {
 			log.Printf("[terminal] %s: write error: %v", sessionID, err)
 			delete(s.Conns, conn)

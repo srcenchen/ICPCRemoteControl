@@ -3,6 +3,7 @@
 
 var currentPage = "dashboard";
 var adminWS = null;
+var selectedTargets = []; // shared with commands.js — empty = broadcast
 
 $(function() {
     $(".nav-link").on("click", function(e) {
@@ -24,6 +25,9 @@ function navigateTo(page) {
         case "dashboard": loadDashboard(); break;
         case "devices":   loadDevices(); break;
         case "commands":  loadCommands(); break;
+        case "network":   loadNetwork(); break;
+        case "checkin":   renderCheckinPage(); break;
+        case "settings":  loadSettings(); break;
     }
 }
 
