@@ -5,17 +5,19 @@ import (
 	"net/http"
 	"strconv"
 
+	"ICPCRemoteControl/internal/biz"
 	"ICPCRemoteControl/internal/data"
 )
 
 // CheckinHandler handles check-in management REST API endpoints.
 type CheckinHandler struct {
 	repo *data.DeviceRepo
+	hub  *biz.Hub
 }
 
 // NewCheckinHandler creates a new CheckinHandler.
-func NewCheckinHandler(repo *data.DeviceRepo) *CheckinHandler {
-	return &CheckinHandler{repo: repo}
+func NewCheckinHandler(repo *data.DeviceRepo, hub *biz.Hub) *CheckinHandler {
+	return &CheckinHandler{repo: repo, hub: hub}
 }
 
 // List returns all devices with check-in info (GET /api/checkin).
@@ -69,6 +71,7 @@ func (h *CheckinHandler) DoCheckin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	h.broadcastCheckinUpdated(id)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "checkin success"})
 }
 
@@ -85,6 +88,7 @@ func (h *CheckinHandler) DoCheckout(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	h.broadcastCheckinUpdated(id)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "checkout success"})
 }
 
@@ -101,7 +105,22 @@ func (h *CheckinHandler) Reset(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	h.broadcastCheckinUpdated(id)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "checkin reset"})
+}
+
+// ResetAll resets all devices' check-in status (POST /api/checkin/reset-all).
+func (h *CheckinHandler) ResetAll(w http.ResponseWriter, r *http.Request) {
+	n, err := h.repo.ResetAllCheckin()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	h.broadcastCheckinUpdated(0) // 0 = all devices affected
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message":       "all checkins reset",
+		"affected_count": n,
+	})
 }
 
 // Swap moves check-in info from one device to another (POST /api/checkin/swap).
@@ -123,5 +142,15 @@ func (h *CheckinHandler) Swap(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	h.broadcastCheckinUpdated(body.FromAssignedID)
+	h.broadcastCheckinUpdated(body.ToAssignedID)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "swap success"})
+}
+
+func (h *CheckinHandler) broadcastCheckinUpdated(assignedID int) {
+	if h.hub != nil {
+		h.hub.BroadcastAdminEvent("checkin_updated", map[string]interface{}{
+			"assigned_id": assignedID,
+		})
+	}
 }

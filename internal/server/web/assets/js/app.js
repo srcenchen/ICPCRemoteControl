@@ -12,12 +12,18 @@ $(function() {
         navigateTo(page);
     });
 
+    // Restore last page from URL hash, or default to dashboard.
+    var hash = location.hash.replace("#", "");
+    var validPages = ["dashboard", "devices", "checkin", "commands", "network", "broadcast", "settings"];
+    var startPage = validPages.indexOf(hash) >= 0 ? hash : "dashboard";
+
     connectAdminWS();
-    navigateTo("dashboard");
+    navigateTo(startPage);
 });
 
 function navigateTo(page) {
     currentPage = page;
+    location.hash = page;
     $(".nav-link").removeClass("active");
     $('.nav-link[data-page="' + page + '"]').addClass("active");
 
@@ -26,6 +32,7 @@ function navigateTo(page) {
         case "devices":   loadDevices(); break;
         case "commands":  loadCommands(); break;
         case "network":   loadNetwork(); break;
+        case "broadcast": loadBroadcastAdmin(); break;
         case "checkin":   renderCheckinPage(); break;
         case "settings":  loadSettings(); break;
     }
@@ -65,9 +72,19 @@ function handleAdminEvent(msg) {
         case "device_connected":
         case "device_disconnected":
         case "device_updated":
+        case "checkin_updated":
             updateStatusBar();
             if (currentPage === "dashboard") loadDashboard();
             if (currentPage === "devices") loadDevices();
+            if (currentPage === "checkin") loadCheckin();
+            if (currentPage === "network") loadNetwork();
+            // Update the device list on commands page if it's open.
+            if (currentPage === "commands" && typeof allDevices !== "undefined") {
+                $.getJSON("/api/devices", function(devices) {
+                    allDevices = devices;
+                    if ($("#device-selector-container").length) renderDeviceList();
+                });
+            }
             break;
         case "command_status":
             if (currentPage === "commands" && typeof updateCommandResult === "function") updateCommandResult(msg.data);

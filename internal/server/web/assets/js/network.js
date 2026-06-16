@@ -2,8 +2,6 @@
 "use strict";
 
 var networkRules = [];
-var selectedTargets = []; // empty = broadcast
-var allDevices = [];
 
 var RULE_TYPES = [
     {value: "DOMAIN-SUFFIX", label: "域名后缀"},
@@ -35,8 +33,7 @@ function renderNetworkPage() {
             '<div id="rules-list"></div>' +
             '<div style="margin-top:12px; display:flex; gap:8px;">' +
                 '<button id="btn-add-rule" class="btn btn-outline">+ 添加规则</button>' +
-                '<button id="btn-save-rules" class="btn btn-primary">保存规则</button>' +
-            '</div>' +
+                '</div>' +
             '<div id="rules-result" class="settings-result" style="margin-top:12px;"></div>' +
         '</div>' +
 
@@ -62,7 +59,7 @@ function renderNetworkPage() {
 
     $("#content").html(html);
     renderRules();
-    renderDeviceCards();
+    renderDeviceList();
     bindEvents();
 }
 
@@ -88,10 +85,38 @@ function renderRules() {
     html += '</div>';
     $("#rules-list").html(html);
 
+    // Auto-save on input/select change (blur).
+    $("#rules-list .rule-value, #rules-list .rule-type").on("blur", function() {
+        autoSaveRules();
+    });
+
     $("#rules-list .btn-delete").on("click", function() {
         var idx = $(this).closest(".preset-row").data("index");
         networkRules.splice(idx, 1);
         renderRules();
+        autoSaveRules();
+    });
+}
+
+function autoSaveRules() {
+    var updated = [];
+    $("#rules-list .preset-row").each(function() {
+        var v = $(this).find(".rule-value").val().trim();
+        if (v) {
+            updated.push({
+                type: $(this).find(".rule-type").val(),
+                value: v
+            });
+        }
+    });
+    networkRules = updated;
+    $.ajax({
+        url: "/api/network/rules", method: "PUT", contentType: "application/json",
+        data: JSON.stringify(updated),
+        success: function() {
+            showResult("rules-result", "已自动保存", "success");
+        },
+        error: function(xhr) { showResult("rules-result", parseError(xhr), "error"); }
     });
 }
 
@@ -105,39 +130,6 @@ function renderTypeSelect(current) {
     return html;
 }
 
-// ---- Device cards (same pattern as commands.js) ----
-
-function renderDeviceCards() {
-    var html = '<div class="device-selector">';
-    html += '<div class="device-card device-card-all' + (selectedTargets.length === 0 ? ' selected' : '') + '" onclick="toggleSelectAll()">';
-    html += '<div class="device-card-check"></div>';
-    html += '<div class="device-card-name">全部设备</div>';
-    html += '<div class="device-card-meta">广播模式</div>';
-    html += '</div>';
-    allDevices.forEach(function(d) {
-        var sel = selectedTargets.indexOf(d.assigned_id) >= 0;
-        html += '<div class="device-card' + (sel ? ' selected' : '') + (d.connected ? '' : ' offline') + '" onclick="toggleSelectDevice(' + d.assigned_id + ')">';
-        html += '<div class="device-card-check">' + (sel ? '✓' : '') + '</div>';
-        html += '<div class="device-card-name">#' + d.assigned_id + ' ' + escapeHtml(d.hostname || d.username) + '</div>';
-        html += '<div class="device-card-meta"><span class="device-status-dot ' + (d.connected ? 'online' : '') + '"></span>' + (d.connected ? '在线' : '离线') + '</div>';
-        html += '</div>';
-    });
-    html += '</div>';
-    $("#device-selector-container").html(html);
-}
-
-function toggleSelectAll() {
-    selectedTargets = [];
-    renderDeviceCards();
-}
-
-function toggleSelectDevice(id) {
-    var idx = selectedTargets.indexOf(id);
-    if (idx >= 0) selectedTargets.splice(idx, 1);
-    else selectedTargets.push(id);
-    renderDeviceCards();
-}
-
 // ---- Actions ----
 
 function bindEvents() {
@@ -146,28 +138,7 @@ function bindEvents() {
         renderRules();
     });
 
-    $("#btn-save-rules").on("click", function() {
-        var updated = [];
-        $("#rules-list .preset-row").each(function() {
-            updated.push({
-                type: $(this).find(".rule-type").val(),
-                value: $(this).find(".rule-value").val().trim()
-            });
-        });
-        for (var i = 0; i < updated.length; i++) {
-            if (!updated[i].value) { showResult("rules-result", "规则值不能为空", "error"); return; }
-        }
-        $.ajax({
-            url: "/api/network/rules", method: "PUT", contentType: "application/json",
-            data: JSON.stringify(updated),
-            success: function(res) {
-                networkRules = res;
-                renderRules();
-                showResult("rules-result", "规则已保存", "success");
-            },
-            error: function(xhr) { showResult("rules-result", parseError(xhr), "error"); }
-        });
-    });
+
 
     $("#btn-apply").on("click", function() {
         if (!confirm("确定要对选中设备应用网络限制吗？\n\n局域网和已配置的白名单域名可正常访问，其余外网将被屏蔽。")) return;

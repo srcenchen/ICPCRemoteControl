@@ -94,7 +94,7 @@ func (h *NetworkHandler) Remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	command := "systemctl stop mihomo 2>/dev/null; systemctl disable mihomo 2>/dev/null; echo '网络限制已解除'"
+	command := buildRemoveCommand()
 
 	cmd := h.dispatch(req.TargetType, req.TargetID, command)
 	writeJSON(w, http.StatusCreated, cmd)
@@ -118,6 +118,56 @@ func (h *NetworkHandler) dispatch(targetType string, targetID *int, command stri
 		}
 	}()
 	return cmd
+}
+
+// buildRemoveCommand constructs the shell command that reconfigures mihomo to allow
+// all traffic (no user rules, MATCH → DIRECT). This "removes" restrictions without
+// stopping the mihomo service, so the TUN stack stays intact.
+func buildRemoveCommand() string {
+	return `cat << 'MCFG' > /etc/mihomo/config.yaml
+# 核心：自建 DNS 解析引擎
+dns:
+  enable: true
+  listen: 0.0.0.0:53
+  enhanced-mode: fake-ip
+  nameserver:
+    - 223.5.5.5
+    - 114.114.114.114
+
+port: 7890
+socks-port: 7891
+allow-lan: false
+mode: rule
+log-level: info
+
+tun:
+  enable: true
+  stack: system
+  auto-route: true
+  auto-redirect: true
+  auto-detect-interface: true
+
+proxy-groups:
+  - name: 白名单放行
+    type: select
+    proxies:
+      - DIRECT
+  - name: 黑名单拦截
+    type: select
+    proxies:
+      - REJECT
+
+rules:
+  - GEOIP,LAN,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - MATCH,DIRECT
+MCFG
+systemctl daemon-reload
+systemctl enable mihomo
+systemctl restart mihomo
+echo '网络限制已解除'`
 }
 
 // buildApplyCommand constructs the shell command to write mihomo config and restart.

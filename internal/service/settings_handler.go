@@ -4,16 +4,20 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"ICPCRemoteControl/internal/biz"
+	"ICPCRemoteControl/internal/model"
 )
 
 // SettingsHandler handles the settings API endpoints.
 type SettingsHandler struct {
 	settings *ServerSettings
+	hub      *biz.Hub
 }
 
 // NewSettingsHandler creates a new SettingsHandler.
-func NewSettingsHandler(settings *ServerSettings) *SettingsHandler {
-	return &SettingsHandler{settings: settings}
+func NewSettingsHandler(settings *ServerSettings, hub *biz.Hub) *SettingsHandler {
+	return &SettingsHandler{settings: settings, hub: hub}
 }
 
 // Get returns current settings (GET /api/settings).
@@ -69,6 +73,19 @@ func (h *SettingsHandler) UpdateCheckinConfig(w http.ResponseWriter, r *http.Req
 		return
 	}
 	h.settings.SetCheckinConfig(cfg)
+
+	// Broadcast updated config to all connected clients.
+	cfgData, _ := json.Marshal(model.CheckinConfigMessage{
+		Type:            "checkin_config",
+		WelcomeText:     cfg.WelcomeText,
+		WarningText:     cfg.WarningText,
+		PostCheckinMsg:  cfg.PostCheckinMsg,
+		PostCheckoutCmd: cfg.PostCheckoutCmd,
+		PostCheckoutMsg: cfg.PostCheckoutMsg,
+	})
+	cfgData = append(cfgData, '\n')
+	h.hub.BroadcastToClients(cfgData)
+
 	writeJSON(w, http.StatusOK, h.settings.GetCheckinConfig())
 }
 

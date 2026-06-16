@@ -2,7 +2,10 @@ package service
 
 import (
 	"encoding/json"
+	"log"
 	"sync"
+
+	"ICPCRemoteControl/internal/data"
 )
 
 // PresetCommand is a named preset command.
@@ -21,16 +24,18 @@ type NetworkRule struct {
 
 // CheckinConfig holds contestant-facing check-in page configuration.
 type CheckinConfig struct {
-	WelcomeText    string `json:"welcome_text"`     // welcome message shown at top of checkin page
-	WarningText    string `json:"warning_text"`     // warning shown on checkin form
-	PostCheckinMsg string `json:"post_checkin_msg"` // message shown after successful checkin
+	WelcomeText     string `json:"welcome_text"`      // welcome message shown at top of checkin page
+	WarningText     string `json:"warning_text"`      // warning shown on checkin form
+	PostCheckinMsg  string `json:"post_checkin_msg"`  // message shown after successful checkin
 	PostCheckoutCmd string `json:"post_checkout_cmd"` // command to run after checkout
 	PostCheckoutMsg string `json:"post_checkout_msg"` // message shown after successful checkout
 }
 
 // ServerSettings holds mutable server configuration that can be changed via the admin UI.
+// Changes are automatically persisted to the database.
 type ServerSettings struct {
 	mu             sync.RWMutex
+	settingsRepo   *data.SettingsRepo
 	HostnamePrefix string          `json:"hostname_prefix"`
 	Presets        []PresetCommand `json:"presets"`
 	NetworkRules   []NetworkRule   `json:"network_rules"`
@@ -87,25 +92,81 @@ func defaultPresets() []PresetCommand {
 
 func defaultNetworkRules() []NetworkRule {
 	return []NetworkRule{
-		{Type: "DOMAIN-SUFFIX", Value: "baidu.com"},
 		{Type: "DOMAIN-SUFFIX", Value: "nowcoder.com"},
-		{Type: "DOMAIN-KEYWORD", Value: "nowcoder"},
+		{Type: "DOMAIN-SUFFIX", Value: "aliyuncs.com"},
+		{Type: "DOMAIN-SUFFIX", Value: "126.net"},
+		{Type: "DOMAIN-KEYWORD", Value: "c.dun"},
 	}
 }
 
-// NewServerSettings creates a new ServerSettings with defaults.
-func NewServerSettings(prefix string) *ServerSettings {
-	return &ServerSettings{
+// settings DB keys for persistence.
+const (
+	settingKeyHostnamePrefix = "hostname_prefix"
+	settingKeyPresets        = "presets"
+	settingKeyNetworkRules   = "network_rules"
+	settingKeyCheckinConfig  = "checkin_config"
+)
+
+// NewServerSettings creates a new ServerSettings, loading persisted values from the
+// database. Falls back to built-in defaults for any keys not yet stored.
+func NewServerSettings(prefix string, repo *data.SettingsRepo) *ServerSettings {
+	s := &ServerSettings{
+		settingsRepo:   repo,
 		HostnamePrefix: prefix,
 		Presets:        defaultPresets(),
 		NetworkRules:   defaultNetworkRules(),
 		CheckinCfg: CheckinConfig{
-			WelcomeText:    "欢迎参加XCPC竞赛",
-			WarningText:    "严禁场外答题，否则成绩无效！",
-			PostCheckinMsg: "签到成功",
+			WelcomeText:     "欢迎参加XCPC竞赛",
+			WarningText:     "严禁场外答题，否则成绩无效！",
+			PostCheckinMsg:  "签到成功",
 			PostCheckoutCmd: "shutdown -h +1",
 			PostCheckoutMsg: "签退成功，您的电脑将在1分钟后自动关机。",
 		},
+	}
+
+	// Load persisted values from DB, falling back to defaults.
+	if repo != nil {
+		s.loadFromDB()
+	}
+
+	return s
+}
+
+// loadFromDB reads persisted settings from the database, keeping defaults for any
+// keys that haven't been saved yet.
+func (s *ServerSettings) loadFromDB() {
+	if raw, err := s.settingsRepo.Get(settingKeyHostnamePrefix); err == nil && raw != "" {
+		s.HostnamePrefix = raw
+	}
+	if raw, err := s.settingsRepo.Get(settingKeyPresets); err == nil && raw != "" {
+		var presets []PresetCommand
+		if json.Unmarshal([]byte(raw), &presets) == nil {
+			s.Presets = presets
+		}
+	}
+	if raw, err := s.settingsRepo.Get(settingKeyNetworkRules); err == nil && raw != "" {
+		var rules []NetworkRule
+		if json.Unmarshal([]byte(raw), &rules) == nil {
+			s.NetworkRules = rules
+		}
+	}
+	if raw, err := s.settingsRepo.Get(settingKeyCheckinConfig); err == nil && raw != "" {
+		var cfg CheckinConfig
+		if json.Unmarshal([]byte(raw), &cfg) == nil {
+			s.CheckinCfg = cfg
+		}
+	}
+	log.Printf("[settings] loaded persisted settings from database")
+}
+
+// persist saves a setting key-value pair to the database. Errors are logged but not
+// surfaced — in-memory state is always correct even if the DB write fails.
+func (s *ServerSettings) persist(key, value string) {
+	if s.settingsRepo == nil {
+		return
+	}
+	if err := s.settingsRepo.Set(key, value); err != nil {
+		log.Printf("[settings] persist %q failed: %v", key, err)
 	}
 }
 
@@ -116,11 +177,13 @@ func (s *ServerSettings) GetCheckinConfig() CheckinConfig {
 	return s.CheckinCfg
 }
 
-// SetCheckinConfig updates the checkin config.
+// SetCheckinConfig updates the checkin config and persists to DB.
 func (s *ServerSettings) SetCheckinConfig(cfg CheckinConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.CheckinCfg = cfg
+	data, _ := json.Marshal(cfg)
+	s.persist(settingKeyCheckinConfig, string(data))
 }
 
 // GetHostnamePrefix returns the current hostname prefix.
@@ -130,11 +193,12 @@ func (s *ServerSettings) GetHostnamePrefix() string {
 	return s.HostnamePrefix
 }
 
-// SetHostnamePrefix updates the hostname prefix.
+// SetHostnamePrefix updates the hostname prefix and persists to DB.
 func (s *ServerSettings) SetHostnamePrefix(prefix string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.HostnamePrefix = prefix
+	s.persist(settingKeyHostnamePrefix, prefix)
 }
 
 // GetPresets returns a copy of the current presets.
@@ -146,11 +210,13 @@ func (s *ServerSettings) GetPresets() []PresetCommand {
 	return out
 }
 
-// SetPresets replaces the presets list.
+// SetPresets replaces the presets list and persists to DB.
 func (s *ServerSettings) SetPresets(presets []PresetCommand) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Presets = presets
+	data, _ := json.Marshal(presets)
+	s.persist(settingKeyPresets, string(data))
 }
 
 // GetNetworkRules returns a copy of the current network rules.
@@ -162,11 +228,13 @@ func (s *ServerSettings) GetNetworkRules() []NetworkRule {
 	return out
 }
 
-// SetNetworkRules replaces the network rules list.
+// SetNetworkRules replaces the network rules list and persists to DB.
 func (s *ServerSettings) SetNetworkRules(rules []NetworkRule) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.NetworkRules = rules
+	data, _ := json.Marshal(rules)
+	s.persist(settingKeyNetworkRules, string(data))
 }
 
 // Snapshot returns a copy of current settings for JSON serialization.

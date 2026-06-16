@@ -154,7 +154,7 @@ func (r *DeviceRepo) GetByMacAddress(mac string) (*model.Device, error) {
 // GetAll returns summaries of all devices.
 func (r *DeviceRepo) GetAll() ([]model.DeviceSummary, error) {
 	query := `SELECT assigned_id, hostname, username, os_name, cpu_model,
-		memory_total, local_ip, connected, last_seen,
+		memory_total, memory_used, local_ip, connected, last_seen,
 		checkin_status, student_name, student_num
 	FROM devices ORDER BY assigned_id`
 
@@ -169,7 +169,7 @@ func (r *DeviceRepo) GetAll() ([]model.DeviceSummary, error) {
 		var d model.DeviceSummary
 		var connected int
 		if err := rows.Scan(&d.AssignedID, &d.Hostname, &d.Username, &d.OSName,
-			&d.CPUModel, &d.MemoryTotal, &d.LocalIP, &connected, &d.LastSeen,
+			&d.CPUModel, &d.MemoryTotal, &d.MemoryUsed, &d.LocalIP, &connected, &d.LastSeen,
 			&d.CheckinStatus, &d.StudentName, &d.StudentNum); err != nil {
 			return nil, fmt.Errorf("scan device summary: %w", err)
 		}
@@ -259,7 +259,7 @@ func (r *DeviceRepo) GetStats() (total int, online int, err error) {
 // GetCheckinAll returns all devices with check-in fields for the check-in management page.
 func (r *DeviceRepo) GetCheckinAll() ([]model.DeviceSummary, error) {
 	query := `SELECT assigned_id, hostname, username, os_name, cpu_model,
-		memory_total, local_ip, connected, last_seen,
+		memory_total, memory_used, local_ip, connected, last_seen,
 		checkin_status, student_name, student_num
 	FROM devices ORDER BY assigned_id`
 
@@ -274,7 +274,7 @@ func (r *DeviceRepo) GetCheckinAll() ([]model.DeviceSummary, error) {
 		var d model.DeviceSummary
 		var connected int
 		if err := rows.Scan(&d.AssignedID, &d.Hostname, &d.Username, &d.OSName,
-			&d.CPUModel, &d.MemoryTotal, &d.LocalIP, &connected, &d.LastSeen,
+			&d.CPUModel, &d.MemoryTotal, &d.MemoryUsed, &d.LocalIP, &connected, &d.LastSeen,
 			&d.CheckinStatus, &d.StudentName, &d.StudentNum); err != nil {
 			return nil, fmt.Errorf("scan checkin device: %w", err)
 		}
@@ -315,6 +315,20 @@ func (r *DeviceRepo) ResetCheckin(assignedID int) error {
 		now, assignedID,
 	)
 	return err
+}
+
+// ResetAllCheckin resets all devices' check-in status back to not checked in.
+func (r *DeviceRepo) ResetAllCheckin() (int64, error) {
+	now := time.Now().Format(time.RFC3339)
+	result, err := r.db.Exec(
+		`UPDATE devices SET checkin_status=0, student_name='', student_num='', checkin_time='', checkout_time='', updated_at=? WHERE checkin_status != 0`,
+		now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := result.RowsAffected()
+	return n, nil
 }
 
 // SwapCheckin moves check-in info from one device to another.

@@ -140,6 +140,18 @@ func (h *Hub) OnlineCount() int {
 	return len(h.clients)
 }
 
+// BroadcastToClients sends a message to all connected TCP clients.
+func (h *Hub) BroadcastToClients(data []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, client := range h.clients {
+		select {
+		case client.Send <- data:
+		default:
+		}
+	}
+}
+
 // Kick closes a single client's TCP connection, forcing it to reconnect.
 func (h *Hub) Kick(assignedID int) {
 	h.mu.RLock()

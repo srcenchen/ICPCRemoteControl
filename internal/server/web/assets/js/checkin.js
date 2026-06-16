@@ -72,7 +72,10 @@ function renderCheckinTable(devices) {
     }).join("");
 
     var html = '' +
-        '<h2 class="section-title">设备签到列表</h2>' +
+        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">' +
+            '<h2 class="section-title" style="margin:0;">设备签到列表</h2>' +
+            '<button class="btn btn-sm btn-danger" onclick="doResetAllCheckin()">解除全部签到</button>' +
+        '</div>' +
         '<div class="table-container">' +
             '<table>' +
                 '<thead>' +
@@ -238,6 +241,24 @@ function doSwap(fromID) {
 function closeCheckinModal(e) {
     if (e && e.target !== e.currentTarget) return;
     $("#checkin-modal-container").empty();
+}
+
+function doResetAllCheckin() {
+    if (!confirm("确定要解除所有设备的签到状态吗？\n\n此操作不可撤销，所有已签到和已签退的设备都将被重置为未签到状态。")) return;
+
+    $.ajax({
+        url: "/api/checkin/reset-all",
+        method: "POST",
+        success: function(resp) {
+            alert("已成功解除 " + (resp.affected_count || 0) + " 台设备的签到");
+            loadCheckin();
+        },
+        error: function(xhr) {
+            var err = "操作失败";
+            try { err = JSON.parse(xhr.responseText).error || err; } catch(e) {}
+            alert(err);
+        }
+    });
 }
 
 // Render the main checkin page layout for the router

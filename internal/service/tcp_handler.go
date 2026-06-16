@@ -17,6 +17,11 @@ import (
 
 const maxTCPConns = 500
 
+// readTimeout is the maximum interval between messages from a client before the
+// server considers the connection dead. The client sends a heartbeat every 15s.
+// Combined with TCP keepalive (5s probes), dead connections are detected quickly.
+const readTimeout = 30 * time.Second
+
 // TCPHandler handles TCP connections from contestant machines.
 type TCPHandler struct {
 	hub         *biz.Hub
@@ -61,6 +66,12 @@ func (h *TCPHandler) Handle(conn net.Conn) {
 		conn.Close()
 		h.decConn()
 	}()
+
+	// Enable TCP keepalive so the OS detects dead connections within seconds.
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpConn.SetKeepAlive(true)
+		tcpConn.SetKeepAlivePeriod(5 * time.Second)
+	}
 
 	conn.SetDeadline(time.Now().Add(30 * time.Second))
 	reader := bufio.NewReader(conn)
@@ -118,11 +129,23 @@ func (h *TCPHandler) Handle(conn net.Conn) {
 	device.MacAddress = regReq.MacAddress
 	device.Connected = true
 
+	// Preserve check-in state from the existing DB record so reconnects
+	// don't overwrite checkin_status / student_name / checkin_time etc.
 	if existingDevice != nil {
 		device.ID = existingDevice.ID
+		device.CheckinStatus = existingDevice.CheckinStatus
+		device.StudentName = existingDevice.StudentName
+		device.StudentNum = existingDevice.StudentNum
+		device.CheckinTime = existingDevice.CheckinTime
+		device.CheckoutTime = existingDevice.CheckoutTime
 		h.deviceRepo.Update(device)
 	} else if existing, err := h.deviceRepo.GetByAssignedID(assignedID); err == nil {
 		device.ID = existing.ID
+		device.CheckinStatus = existing.CheckinStatus
+		device.StudentName = existing.StudentName
+		device.StudentNum = existing.StudentNum
+		device.CheckinTime = existing.CheckinTime
+		device.CheckoutTime = existing.CheckoutTime
 		h.deviceRepo.Update(device)
 	} else {
 		h.deviceRepo.Create(device)
@@ -148,12 +171,14 @@ func (h *TCPHandler) Handle(conn net.Conn) {
 	}
 
 	// --- Main loop ---
-	conn.SetDeadline(time.Time{})
+	// Set a read deadline so we detect silent client disconnects within readTimeout.
+	// The deadline is refreshed on every successful message (ping, command output, etc.).
 
 	// Track in-flight command IDs for this device so we can fail them on disconnect.
 	inFlightCmds := make(map[int64]bool)
 
 	for {
+		conn.SetReadDeadline(time.Now().Add(readTimeout))
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
@@ -248,6 +273,29 @@ func (h *TCPHandler) Handle(conn net.Conn) {
 			TerminalHub.Broadcast(msg.SessionID, []byte("\x1b[31mSession closed\x1b[0m\r\n"))
 			TerminalHub.Close(msg.SessionID)
 
+		case "query_checkin_config":
+			var msg model.CheckinConfigMessage
+			if err := json.Unmarshal([]byte(line), &msg); err != nil {
+				log.Printf("[tcp] device %d: unmarshal query_checkin_config: %v", assignedID, err)
+				continue
+			}
+			cfg := h.settings.GetCheckinConfig()
+			resp := model.CheckinConfigMessage{
+				Type:            "checkin_config",
+				CorrelationID:   msg.CorrelationID,
+				WelcomeText:     cfg.WelcomeText,
+				WarningText:     cfg.WarningText,
+				PostCheckinMsg:  cfg.PostCheckinMsg,
+				PostCheckoutCmd: cfg.PostCheckoutCmd,
+				PostCheckoutMsg: cfg.PostCheckoutMsg,
+			}
+			respCfgData, _ := json.Marshal(resp)
+			respCfgData = append(respCfgData, '\n')
+			select {
+			case clientConn.Send <- respCfgData:
+			default:
+			}
+
 		case "checkin":
 			var msg model.CheckinMessage
 			if err := json.Unmarshal([]byte(line), &msg); err != nil {
@@ -264,6 +312,9 @@ func (h *TCPHandler) Handle(conn net.Conn) {
 				resp.Message = err.Error()
 			} else {
 				resp.Message = "checkin success"
+				h.hub.BroadcastAdminEvent("checkin_updated", map[string]interface{}{
+					"assigned_id": assignedID,
+				})
 			}
 			respData, _ := json.Marshal(resp)
 			respData = append(respData, '\n')
@@ -280,6 +331,14 @@ func (h *TCPHandler) Handle(conn net.Conn) {
 			}
 			resp := model.CheckinResponseMessage{
 				Type: "checkin_response", CorrelationID: msg.CorrelationID, Success: true,
+			}
+			// Populate actual check-in state from the database.
+			if dev, err := h.deviceRepo.GetByAssignedID(assignedID); err == nil {
+				resp.CheckinStatus = dev.CheckinStatus
+				resp.StudentName = dev.StudentName
+				resp.StudentNum = dev.StudentNum
+				resp.CheckinTime = dev.CheckinTime
+				resp.CheckoutTime = dev.CheckoutTime
 			}
 			respData, _ := json.Marshal(resp)
 			respData = append(respData, '\n')
@@ -302,6 +361,10 @@ func (h *TCPHandler) Handle(conn net.Conn) {
 			}
 			if err != nil {
 				resp.Message = err.Error()
+			} else {
+				h.hub.BroadcastAdminEvent("checkin_updated", map[string]interface{}{
+					"assigned_id": assignedID,
+				})
 			}
 			respData, _ := json.Marshal(resp)
 			respData = append(respData, '\n')
