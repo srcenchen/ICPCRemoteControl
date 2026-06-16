@@ -140,6 +140,17 @@ func (h *Hub) OnlineCount() int {
 	return len(h.clients)
 }
 
+// Kick closes a single client's TCP connection, forcing it to reconnect.
+func (h *Hub) Kick(assignedID int) {
+	h.mu.RLock()
+	client, ok := h.clients[assignedID]
+	h.mu.RUnlock()
+	if ok {
+		client.Conn.Close()
+		log.Printf("[hub] kicked device %d", assignedID)
+	}
+}
+
 // KickAll closes all client TCP connections, forcing them to reconnect.
 func (h *Hub) KickAll() {
 	h.mu.RLock()

@@ -61,6 +61,13 @@ func (h *DeviceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+
+	// Kick the client if connected, so the TCP handler's disconnect cleanup
+	// marks in-flight commands as failed.
+	if h.hub != nil {
+		h.hub.Kick(id)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{"message": "deleted"})
 }
 

@@ -41,9 +41,10 @@ func (r *DeviceRepo) Create(d *model.Device) error {
 		kernel_release, kernel_arch, cpu_model, cpu_physical_cores, cpu_logical_cores,
 		cpu_packages, gpu_info, memory_total, memory_used, disk_info, local_ip,
 		de_name, wm_name, shell, terminal, display_info, uptime, packages,
-		fastfetch_raw, connected, last_seen, first_seen, updated_at
+		fastfetch_raw, connected, last_seen, first_seen, updated_at,
+		checkin_status, student_name, student_num, checkin_time, checkout_time
 	) VALUES (
-		?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+		?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 	)`
 
 	result, err := r.db.Exec(query,
@@ -52,6 +53,7 @@ func (r *DeviceRepo) Create(d *model.Device) error {
 		d.CPUPackages, d.GPUInfo, d.MemoryTotal, d.MemoryUsed, d.DiskInfo, d.LocalIP,
 		d.DEName, d.WMName, d.Shell, d.Terminal, d.DisplayInfo, d.Uptime, d.Packages,
 		d.FastfetchRaw, boolToInt(d.Connected), d.LastSeen, d.FirstSeen, d.UpdatedAt,
+		d.CheckinStatus, d.StudentName, d.StudentNum, d.CheckinTime, d.CheckoutTime,
 	)
 	if err != nil {
 		return fmt.Errorf("insert device: %w", err)
@@ -71,7 +73,8 @@ func (r *DeviceRepo) Update(d *model.Device) error {
 		kernel_release=?, kernel_arch=?, cpu_model=?, cpu_physical_cores=?, cpu_logical_cores=?,
 		cpu_packages=?, gpu_info=?, memory_total=?, memory_used=?, disk_info=?, local_ip=?,
 		de_name=?, wm_name=?, shell=?, terminal=?, display_info=?, uptime=?, packages=?,
-		fastfetch_raw=?, connected=?, last_seen=?, updated_at=?
+		fastfetch_raw=?, connected=?, last_seen=?, updated_at=?,
+		checkin_status=?, student_name=?, student_num=?, checkin_time=?, checkout_time=?
 	WHERE assigned_id=?`
 
 	_, err := r.db.Exec(query,
@@ -80,6 +83,7 @@ func (r *DeviceRepo) Update(d *model.Device) error {
 		d.CPUPackages, d.GPUInfo, d.MemoryTotal, d.MemoryUsed, d.DiskInfo, d.LocalIP,
 		d.DEName, d.WMName, d.Shell, d.Terminal, d.DisplayInfo, d.Uptime, d.Packages,
 		d.FastfetchRaw, boolToInt(d.Connected), d.LastSeen, d.UpdatedAt,
+		d.CheckinStatus, d.StudentName, d.StudentNum, d.CheckinTime, d.CheckoutTime,
 		d.AssignedID,
 	)
 	if err != nil {
@@ -95,7 +99,8 @@ func (r *DeviceRepo) GetByAssignedID(assignedID int) (*model.Device, error) {
 		kernel_release, kernel_arch, cpu_model, cpu_physical_cores, cpu_logical_cores,
 		cpu_packages, gpu_info, memory_total, memory_used, disk_info, local_ip,
 		de_name, wm_name, shell, terminal, display_info, uptime, packages,
-		fastfetch_raw, connected, last_seen, first_seen, updated_at
+		fastfetch_raw, connected, last_seen, first_seen, updated_at,
+		checkin_status, student_name, student_num, checkin_time, checkout_time
 	FROM devices WHERE assigned_id=?`
 
 	d := &model.Device{}
@@ -106,6 +111,7 @@ func (r *DeviceRepo) GetByAssignedID(assignedID int) (*model.Device, error) {
 		&d.CPUPackages, &d.GPUInfo, &d.MemoryTotal, &d.MemoryUsed, &d.DiskInfo, &d.LocalIP,
 		&d.DEName, &d.WMName, &d.Shell, &d.Terminal, &d.DisplayInfo, &d.Uptime, &d.Packages,
 		&d.FastfetchRaw, &connected, &d.LastSeen, &d.FirstSeen, &d.UpdatedAt,
+		&d.CheckinStatus, &d.StudentName, &d.StudentNum, &d.CheckinTime, &d.CheckoutTime,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get device by assigned_id %d: %w", assignedID, err)
@@ -124,7 +130,8 @@ func (r *DeviceRepo) GetByMacAddress(mac string) (*model.Device, error) {
 		kernel_release, kernel_arch, cpu_model, cpu_physical_cores, cpu_logical_cores,
 		cpu_packages, gpu_info, memory_total, memory_used, disk_info, local_ip,
 		de_name, wm_name, shell, terminal, display_info, uptime, packages,
-		fastfetch_raw, connected, last_seen, first_seen, updated_at
+		fastfetch_raw, connected, last_seen, first_seen, updated_at,
+		checkin_status, student_name, student_num, checkin_time, checkout_time
 	FROM devices WHERE mac_address=?`
 
 	d := &model.Device{}
@@ -135,6 +142,7 @@ func (r *DeviceRepo) GetByMacAddress(mac string) (*model.Device, error) {
 		&d.CPUPackages, &d.GPUInfo, &d.MemoryTotal, &d.MemoryUsed, &d.DiskInfo, &d.LocalIP,
 		&d.DEName, &d.WMName, &d.Shell, &d.Terminal, &d.DisplayInfo, &d.Uptime, &d.Packages,
 		&d.FastfetchRaw, &connected, &d.LastSeen, &d.FirstSeen, &d.UpdatedAt,
+		&d.CheckinStatus, &d.StudentName, &d.StudentNum, &d.CheckinTime, &d.CheckoutTime,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get device by mac %s: %w", mac, err)
@@ -146,7 +154,8 @@ func (r *DeviceRepo) GetByMacAddress(mac string) (*model.Device, error) {
 // GetAll returns summaries of all devices.
 func (r *DeviceRepo) GetAll() ([]model.DeviceSummary, error) {
 	query := `SELECT assigned_id, hostname, username, os_name, cpu_model,
-		memory_total, connected, last_seen
+		memory_total, local_ip, connected, last_seen,
+		checkin_status, student_name, student_num
 	FROM devices ORDER BY assigned_id`
 
 	rows, err := r.db.Query(query)
@@ -160,7 +169,8 @@ func (r *DeviceRepo) GetAll() ([]model.DeviceSummary, error) {
 		var d model.DeviceSummary
 		var connected int
 		if err := rows.Scan(&d.AssignedID, &d.Hostname, &d.Username, &d.OSName,
-			&d.CPUModel, &d.MemoryTotal, &connected, &d.LastSeen); err != nil {
+			&d.CPUModel, &d.MemoryTotal, &d.LocalIP, &connected, &d.LastSeen,
+			&d.CheckinStatus, &d.StudentName, &d.StudentNum); err != nil {
 			return nil, fmt.Errorf("scan device summary: %w", err)
 		}
 		d.Connected = connected != 0
@@ -244,6 +254,115 @@ func (r *DeviceRepo) GetStats() (total int, online int, err error) {
 		return 0, 0, err
 	}
 	return total, online, nil
+}
+
+// GetCheckinAll returns all devices with check-in fields for the check-in management page.
+func (r *DeviceRepo) GetCheckinAll() ([]model.DeviceSummary, error) {
+	query := `SELECT assigned_id, hostname, username, os_name, cpu_model,
+		memory_total, local_ip, connected, last_seen,
+		checkin_status, student_name, student_num
+	FROM devices ORDER BY assigned_id`
+
+	rows, err := r.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("get checkin all: %w", err)
+	}
+	defer rows.Close()
+
+	var devices []model.DeviceSummary
+	for rows.Next() {
+		var d model.DeviceSummary
+		var connected int
+		if err := rows.Scan(&d.AssignedID, &d.Hostname, &d.Username, &d.OSName,
+			&d.CPUModel, &d.MemoryTotal, &d.LocalIP, &connected, &d.LastSeen,
+			&d.CheckinStatus, &d.StudentName, &d.StudentNum); err != nil {
+			return nil, fmt.Errorf("scan checkin device: %w", err)
+		}
+		d.Connected = connected != 0
+		devices = append(devices, d)
+	}
+	if devices == nil {
+		devices = []model.DeviceSummary{}
+	}
+	return devices, rows.Err()
+}
+
+// Checkin marks a device as checked in with student info.
+func (r *DeviceRepo) Checkin(assignedID int, name, num string) error {
+	now := time.Now().Format(time.RFC3339)
+	_, err := r.db.Exec(
+		`UPDATE devices SET checkin_status=1, student_name=?, student_num=?, checkin_time=?, updated_at=? WHERE assigned_id=?`,
+		name, num, now, now, assignedID,
+	)
+	return err
+}
+
+// Checkout marks a device as checked out.
+func (r *DeviceRepo) Checkout(assignedID int) error {
+	now := time.Now().Format(time.RFC3339)
+	_, err := r.db.Exec(
+		`UPDATE devices SET checkin_status=2, checkout_time=?, updated_at=? WHERE assigned_id=?`,
+		now, now, assignedID,
+	)
+	return err
+}
+
+// ResetCheckin resets a device's check-in status back to not checked in.
+func (r *DeviceRepo) ResetCheckin(assignedID int) error {
+	now := time.Now().Format(time.RFC3339)
+	_, err := r.db.Exec(
+		`UPDATE devices SET checkin_status=0, student_name='', student_num='', checkin_time='', checkout_time='', updated_at=? WHERE assigned_id=?`,
+		now, assignedID,
+	)
+	return err
+}
+
+// SwapCheckin moves check-in info from one device to another.
+func (r *DeviceRepo) SwapCheckin(oldAssignedID, newAssignedID int) error {
+	// Read old device's check-in info.
+	var name, num, checkinTime string
+	err := r.db.QueryRow(
+		`SELECT student_name, student_num, checkin_time FROM devices WHERE assigned_id=?`,
+		oldAssignedID,
+	).Scan(&name, &num, &checkinTime)
+	if err != nil {
+		return fmt.Errorf("read old checkin info: %w", err)
+	}
+
+	now := time.Now().Format(time.RFC3339)
+
+	// Move check-in info to new device.
+	_, err = r.db.Exec(
+		`UPDATE devices SET checkin_status=1, student_name=?, student_num=?, checkin_time=?, checkout_time='', updated_at=? WHERE assigned_id=?`,
+		name, num, checkinTime, now, newAssignedID,
+	)
+	if err != nil {
+		return fmt.Errorf("move checkin to new device: %w", err)
+	}
+
+	// Reset old device.
+	_, err = r.db.Exec(
+		`UPDATE devices SET checkin_status=0, student_name='', student_num='', checkin_time='', checkout_time='', updated_at=? WHERE assigned_id=?`,
+		now, oldAssignedID,
+	)
+	return err
+}
+
+// GetCheckinStats returns check-in statistics.
+func (r *DeviceRepo) GetCheckinStats() (total, checkedIn, checkedOut int, err error) {
+	err = r.db.QueryRow(`SELECT COUNT(*) FROM devices`).Scan(&total)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	err = r.db.QueryRow(`SELECT COUNT(*) FROM devices WHERE checkin_status=1`).Scan(&checkedIn)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	err = r.db.QueryRow(`SELECT COUNT(*) FROM devices WHERE checkin_status=2`).Scan(&checkedOut)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	return total, checkedIn, checkedOut, nil
 }
 
 func boolToInt(b bool) int {

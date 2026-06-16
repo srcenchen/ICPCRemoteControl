@@ -38,6 +38,9 @@ type Config struct {
 	StatsH     *service.StatsHandler
 	AdminWSH   *service.AdminWSHandler
 	TerminalWSH *service.TerminalWSHandler
+	SettingsH   *service.SettingsHandler
+	NetworkH    *service.NetworkHandler
+	CheckinH    *service.CheckinHandler
 }
 
 // New creates a new Server.
@@ -55,6 +58,24 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("POST /api/commands/{id}/cancel", cfg.CommandH.Cancel)
 	mux.HandleFunc("POST /api/commands/clear", cfg.CommandH.Clear)
 	mux.HandleFunc("GET /api/presets", cfg.CommandH.Presets)
+	mux.HandleFunc("GET /api/settings", cfg.SettingsH.Get)
+	mux.HandleFunc("POST /api/settings", cfg.SettingsH.Update)
+	mux.HandleFunc("GET /api/settings/presets", cfg.SettingsH.GetPresets)
+	mux.HandleFunc("PUT /api/settings/presets", cfg.SettingsH.UpdatePresets)
+	mux.HandleFunc("GET /api/settings/checkin", cfg.SettingsH.GetCheckinConfig)
+	mux.HandleFunc("PUT /api/settings/checkin", cfg.SettingsH.UpdateCheckinConfig)
+
+	mux.HandleFunc("GET /api/network/rules", cfg.NetworkH.GetRules)
+	mux.HandleFunc("PUT /api/network/rules", cfg.NetworkH.UpdateRules)
+	mux.HandleFunc("POST /api/network/apply", cfg.NetworkH.Apply)
+	mux.HandleFunc("POST /api/network/remove", cfg.NetworkH.Remove)
+
+	mux.HandleFunc("GET /api/checkin", cfg.CheckinH.List)
+	mux.HandleFunc("GET /api/checkin/stats", cfg.CheckinH.Stats)
+	mux.HandleFunc("POST /api/checkin/{id}/checkin", cfg.CheckinH.DoCheckin)
+	mux.HandleFunc("POST /api/checkin/{id}/checkout", cfg.CheckinH.DoCheckout)
+	mux.HandleFunc("POST /api/checkin/{id}/reset", cfg.CheckinH.Reset)
+	mux.HandleFunc("POST /api/checkin/swap", cfg.CheckinH.Swap)
 
 	mux.HandleFunc("GET /ws/admin", cfg.AdminWSH.Serve)
 	mux.HandleFunc("GET /ws/terminal/{id}", cfg.TerminalWSH.Serve)
@@ -119,7 +140,6 @@ func (s *Server) startAvahi() {
 		ip = "0.0.0.0"
 	}
 	log.Printf("[avahi] publishing icpc-server.local on %s via mDNS", ip)
-	ip = "192.168.1.10" // 暂时写死
 	s.avahiCmd = exec.Command(path, "-a", "-R", "icpc-server.local", ip)
 	s.avahiCmd.Stdout = log.Writer()
 	s.avahiCmd.Stderr = log.Writer()

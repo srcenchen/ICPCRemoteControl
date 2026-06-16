@@ -11,9 +11,9 @@ function openTerminal(deviceId) {
         '<div class="modal" style="max-width:900px; width:95%; padding:16px;" onclick="event.stopPropagation()">' +
             '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">' +
                 '<h3 style="color:var(--accent); margin:0;">终端 — 设备 #' + deviceId + '</h3>' +
-                '<button class="btn btn-sm" onclick="closeTerminal()" style="background:var(--border); color:var(--text-primary);">✕ 关闭</button>' +
+                '<button class="btn btn-sm btn-danger" onclick="closeTerminal()">✕ 关闭</button>' +
             '</div>' +
-            '<div id="terminal-container" style="height:500px; background:#000; border-radius:8px;"></div>' +
+            '<div id="terminal-container" style="height:500px; background:#f5f5f5; border:1px solid var(--border); border-radius:8px;"></div>' +
         '</div>' +
     '</div>';
 
@@ -25,7 +25,7 @@ function openTerminal(deviceId) {
             cursorBlink: true,
             fontSize: 14,
             fontFamily: '"Fira Code", "Consolas", monospace',
-            theme: { background: "#000", foreground: "#fff" },
+            theme: { background: "#fafafa", foreground: "#333", cursor: "#333" },
             rows: 28,
             cols: 100
         });

@@ -23,6 +23,10 @@ function renderDashboard(stats) {
                 '<div class="stat-label">离线设备</div>' +
             '</div>' +
             '<div class="stat-card">' +
+                '<div class="stat-value" style="color: var(--success)">' + (stats.checked_in || 0) + '</div>' +
+                '<div class="stat-label">已签到</div>' +
+            '</div>' +
+            '<div class="stat-card">' +
                 '<div class="stat-value">' + stats.total_commands + '</div>' +
                 '<div class="stat-label">命令总数</div>' +
             '</div>' +

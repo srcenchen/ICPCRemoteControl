@@ -5,10 +5,12 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"ICPCRemoteControl/internal/biz"
 	"ICPCRemoteControl/internal/model"
 
+	"github.com/gorilla/websocket"
 )
 
 // TerminalWSHandler handles browser WebSocket connections for interactive terminal.
@@ -48,16 +50,24 @@ func (h *TerminalWSHandler) Serve(w http.ResponseWriter, r *http.Request) {
 	TerminalHub.Subscribe(sessionID, conn)
 	defer TerminalHub.Unsubscribe(sessionID, conn)
 
+	// Ping/pong to keep connection alive through proxies.
+	conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(wsPongWait))
+		return nil
+	})
+
 	// Open terminal on client.
+	const maxCols, maxRows = 500, 200
 	cols := 80
 	rows := 24
 	if c := r.URL.Query().Get("cols"); c != "" {
-		if v, err := strconv.Atoi(c); err == nil && v > 0 {
+		if v, err := strconv.Atoi(c); err == nil && v > 0 && v <= maxCols {
 			cols = v
 		}
 	}
 	if rs := r.URL.Query().Get("rows"); rs != "" {
-		if v, err := strconv.Atoi(rs); err == nil && v > 0 {
+		if v, err := strconv.Atoi(rs); err == nil && v > 0 && v <= maxRows {
 			rows = v
 		}
 	}
@@ -73,44 +83,64 @@ func (h *TerminalWSHandler) Serve(w http.ResponseWriter, r *http.Request) {
 	select { case client.Send <- data: default: }
 
 	// Read from browser and forward to client as terminal_input / terminal_resize.
-	for {
-		_, msg, err := conn.ReadMessage()
-		if err != nil {
-			break
-		}
-
-		// Check if it's a resize control message (JSON) or raw terminal input.
-		if len(msg) > 0 && msg[0] == '{' {
-			var ctrl struct {
-				Type string `json:"type"`
-				Cols int    `json:"cols"`
-				Rows int    `json:"rows"`
+	readErr := make(chan error, 1)
+	go func() {
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				readErr <- err
+				return
 			}
-			if json.Unmarshal(msg, &ctrl) == nil && ctrl.Type == "resize" {
-				resizeMsg := model.TerminalResizeMessage{
-					Type:      "terminal_resize",
-					SessionID: sessionID,
-					Cols:      ctrl.Cols,
-					Rows:      ctrl.Rows,
+
+			// Check if it's a resize control message (JSON) or raw terminal input.
+			if len(msg) > 0 && msg[0] == '{' {
+				var ctrl struct {
+					Type string `json:"type"`
+					Cols int    `json:"cols"`
+					Rows int    `json:"rows"`
 				}
-				data, _ := json.Marshal(resizeMsg)
-				data = append(data, '\n')
-				select { case client.Send <- data: default: }
-				continue
+				if json.Unmarshal(msg, &ctrl) == nil && ctrl.Type == "resize" {
+					if ctrl.Cols > maxCols { ctrl.Cols = maxCols }
+					if ctrl.Rows > maxRows { ctrl.Rows = maxRows }
+					resizeMsg := model.TerminalResizeMessage{
+						Type:      "terminal_resize",
+						SessionID: sessionID,
+						Cols:      ctrl.Cols,
+						Rows:      ctrl.Rows,
+					}
+					data, _ := json.Marshal(resizeMsg)
+					data = append(data, '\n')
+					select { case client.Send <- data: default: }
+					continue
+				}
+			}
+
+			// Raw terminal input.
+			inputMsg := model.TerminalInputMessage{
+				Type:      "terminal_input",
+				SessionID: sessionID,
+				Data:      string(msg),
+			}
+			data, _ := json.Marshal(inputMsg)
+			data = append(data, '\n')
+			select { case client.Send <- data: default: }
+		}
+	}()
+
+	pingTicker := time.NewTicker(wsPingPeriod)
+	defer pingTicker.Stop()
+	for {
+		select {
+		case <-readErr:
+			goto cleanup
+		case <-pingTicker.C:
+			conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				goto cleanup
 			}
 		}
-
-		// Raw terminal input.
-		inputMsg := model.TerminalInputMessage{
-			Type:      "terminal_input",
-			SessionID: sessionID,
-			Data:      string(msg),
-		}
-		data, _ := json.Marshal(inputMsg)
-		data = append(data, '\n')
-		select { case client.Send <- data: default: }
 	}
-
+cleanup:
 	// Close terminal on client.
 	closeMsg := model.TerminalCloseMessage{
 		Type:      "terminal_close",

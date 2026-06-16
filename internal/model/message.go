@@ -47,6 +47,25 @@ type TerminalClosedMessage struct {
 	SessionID string `json:"session_id"`
 }
 
+// CheckinMessage is sent by the client when the contestant checks in.
+type CheckinMessage struct {
+	Type          string `json:"type"` // "checkin"
+	CorrelationID string `json:"correlation_id"`
+	StudentName   string `json:"student_name"`
+	StudentNum    string `json:"student_num"`
+}
+
+// CheckinResponseMessage is the server's response to a checkin request.
+type CheckinResponseMessage struct {
+	Type            string `json:"type"` // "checkin_response"
+	CorrelationID   string `json:"correlation_id"`
+	Success         bool   `json:"success"`
+	Message         string `json:"message,omitempty"`
+	PostCheckinMsg  string `json:"post_checkin_msg,omitempty"`
+	PostCheckoutCmd string `json:"post_checkout_cmd,omitempty"`
+	PostCheckoutMsg string `json:"post_checkout_msg,omitempty"`
+}
+
 type PingMessage struct {
 	Type string `json:"type"` // "ping"
 }
@@ -54,8 +73,9 @@ type PingMessage struct {
 // ---- Server -> Client ----
 
 type RegisterResponse struct {
-	Type       string `json:"type"`
-	AssignedID int    `json:"assigned_id"`
+	Type           string `json:"type"`
+	AssignedID     int    `json:"assigned_id"`
+	HostnamePrefix string `json:"hostname_prefix,omitempty"`
 }
 
 type ExecuteMessage struct {
@@ -101,6 +121,17 @@ type TerminalCloseMessage struct {
 type AckMessage struct {
 	Type    string `json:"type"` // "ack"
 	Message string `json:"message,omitempty"`
+}
+
+// CheckinConfigMessage is sent by the server to push check-in page config to the client.
+type CheckinConfigMessage struct {
+	Type            string `json:"type"` // "checkin_config"
+	CorrelationID   string `json:"correlation_id,omitempty"`
+	WelcomeText     string `json:"welcome_text"`
+	WarningText     string `json:"warning_text"`
+	PostCheckinMsg  string `json:"post_checkin_msg"`
+	PostCheckoutCmd string `json:"post_checkout_cmd"`
+	PostCheckoutMsg string `json:"post_checkout_msg"`
 }
 
 type PongMessage struct {

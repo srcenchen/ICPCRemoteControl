@@ -78,7 +78,7 @@ The `fastfetch --format json` output is a JSON array of typed objects (`Title`, 
 
 - IDs are monotonically incrementing integers starting from 1
 - When a client connects, the server assigns the next available ID
-- The client then renames its hostname to this ID (e.g., `1`, `2`, `3`, ...)
+- The client then renames its hostname to `cwxu-icpc-{ID}` (e.g., `cwxu-icpc-1`, `cwxu-icpc-2`, ...)
 
 ## Data Model Highlights
 

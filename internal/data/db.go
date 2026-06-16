@@ -17,9 +17,10 @@ func NewDB(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
-	// SQLite is single-writer, limit to 1 open connection to avoid "database is locked".
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	// SQLite WAL mode supports concurrent readers. Allow enough connections for
+	// HTTP API, WebSocket updates, and TCP client communication to operate in parallel.
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
 
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("ping sqlite: %w", err)
@@ -93,6 +94,13 @@ func migrate(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_command_log_created ON command_log(created_at)`,
 		// Migration for existing DBs: add parent_id if missing (ignore error if exists).
 		`ALTER TABLE command_log ADD COLUMN parent_id INTEGER`,
+		// Migration: check-in management fields.
+		`ALTER TABLE devices ADD COLUMN checkin_status INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE devices ADD COLUMN student_name TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN student_num TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN checkin_time TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN checkout_time TEXT NOT NULL DEFAULT ''`,
+		`CREATE INDEX IF NOT EXISTS idx_devices_checkin_status ON devices(checkin_status)`,
 	}
 
 	for _, stmt := range stmts {
