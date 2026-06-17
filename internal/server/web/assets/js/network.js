@@ -60,7 +60,7 @@ function renderNetworkPage() {
     $("#content").html(html);
     renderRules();
     renderDeviceList();
-    bindEvents();
+    bindNetworkEvents();
 }
 
 // ---- Rules rendering ----
@@ -132,7 +132,7 @@ function renderTypeSelect(current) {
 
 // ---- Actions ----
 
-function bindEvents() {
+function bindNetworkEvents() {
     $("#btn-add-rule").on("click", function() {
         networkRules.push({type: "DOMAIN-SUFFIX", value: ""});
         renderRules();
