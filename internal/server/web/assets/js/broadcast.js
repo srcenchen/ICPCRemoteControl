@@ -67,7 +67,7 @@ function render() {
             </div>
         `);
     startClock();
-    bindEvents();
+    bindBroadcastEvents();
   }
 
   $('#bc-header').html(renderHeaderHtml());
@@ -264,7 +264,7 @@ function updateCanvasInfo() {
   $('#bc-canvas-w').text(Math.round(c.offsetWidth));
   $('#bc-canvas-h').text(Math.round(c.offsetHeight));
 }
-function bindEvents() {
+function bindBroadcastEvents() {
   if (eventsBound) return;
   eventsBound = true;
   // Track canvas pixel size for WYSIWYG font sizing.
