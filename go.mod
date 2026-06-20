@@ -4,9 +4,11 @@ go 1.26
 
 require (
 	github.com/creack/pty v1.1.24
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/jezek/xgb v1.3.1
 	github.com/xuri/excelize/v2 v2.10.1
+	golang.org/x/crypto v0.48.0
 	golang.org/x/image v0.43.0
 	modernc.org/sqlite v1.37.0
 )
@@ -22,7 +24,6 @@ require (
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
 	github.com/xuri/efp v0.0.1 // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
-	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect

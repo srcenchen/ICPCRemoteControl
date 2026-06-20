@@ -6,6 +6,8 @@ import (
 	"sync"
 
 	"ICPCRemoteControl/internal/data"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // PresetCommand is a named preset command.
@@ -253,4 +255,43 @@ func (s *ServerSettings) MarshalPresets() ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return json.Marshal(s.Presets)
+}
+
+// settings DB keys for password.
+const settingKeyAdminPassword = "admin_password"
+
+// VerifyPassword checks if the password matches the stored hashed password.
+func (s *ServerSettings) VerifyPassword(password string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var hash string
+	if s.settingsRepo != nil {
+		if raw, err := s.settingsRepo.Get(settingKeyAdminPassword); err == nil && raw != "" {
+			hash = raw
+		}
+	}
+
+	// Fall back to default password "admin" if empty
+	if hash == "" {
+		defaultHash, _ := bcrypt.GenerateFromPassword([]byte("admin"), 10)
+		hash = string(defaultHash)
+	}
+
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
+}
+
+// SetAdminPassword hashes and persists the new password.
+func (s *ServerSettings) SetAdminPassword(newPassword string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	hashBytes, err := bcrypt.GenerateFromPassword([]byte(newPassword), 10)
+	if err != nil {
+		return err
+	}
+
+	s.persist(settingKeyAdminPassword, string(hashBytes))
+	return nil
 }
