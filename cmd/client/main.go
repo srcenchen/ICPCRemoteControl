@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -88,6 +89,18 @@ func main() {
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	log.Println("[client] starting")
+
+	go startWatermark()
+
+	// Catch SIGINT and SIGTERM to clean up children processes (like the watermark window)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		log.Println("[client] shutting down, cleaning up...")
+		stopWatermark()
+		os.Exit(0)
+	}()
 
 	// Start the check-in HTTP server on port 8090.
 	go startCheckinServer()
@@ -599,18 +612,41 @@ func connectAndServe(serverAddr string, storedID *int) error {
 	writeStoredID(regResp.AssignedID)
 	renameHostname(regResp.AssignedID, regResp.HostnamePrefix)
 
+	newHostname := fmt.Sprintf("%s-%d", regResp.HostnamePrefix, regResp.AssignedID)
+
 	// Update state for HTTP handlers.
 	state.mu.Lock()
 	state.assignedID = regResp.AssignedID
-	state.hostname = hostname
+	state.hostname = newHostname
 	state.macAddr = getMacAddress()
 	state.ipAddr = getLocalIP()
 	state.mu.Unlock()
 
 	sysInfo, _ := collectSystemInfo(regResp.AssignedID)
+	if sysInfo != nil {
+		for i, rawEntry := range sysInfo.Info {
+			var entryMap map[string]interface{}
+			if err := json.Unmarshal(rawEntry, &entryMap); err == nil {
+				if t, ok := entryMap["type"].(string); ok && t == "Title" {
+					if res, ok := entryMap["result"].(map[string]interface{}); ok {
+						res["hostName"] = newHostname
+						entryMap["result"] = res
+						newRaw, _ := json.Marshal(entryMap)
+						sysInfo.Info[i] = json.RawMessage(newRaw)
+					}
+				}
+			}
+		}
+	}
 	sendJSON(send, sysInfo)
-
 	log.Println("[client] ready")
+
+	// Fetch checkin config and status immediately on connection to sync watermark and client state
+	go func() {
+		fetchCheckinConfig(send)
+		fetchCheckinStatus(send)
+		updateWatermark()
+	}()
 
 	// --- Main loop ---
 	done := make(chan struct{})

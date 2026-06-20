@@ -5,9 +5,12 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"ICPCRemoteControl/internal/biz"
 	"ICPCRemoteControl/internal/data"
+
+	"github.com/xuri/excelize/v2"
 )
 
 // DeviceHandler handles REST API requests for devices.
@@ -91,4 +94,88 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+// ExportXLSX exports all devices details to an Excel file (GET /api/devices/export).
+func (h *DeviceHandler) ExportXLSX(w http.ResponseWriter, r *http.Request) {
+	devices, err := h.repo.GetAllFull()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	f := excelize.NewFile()
+	defer f.Close()
+
+	sheetName := "Sheet1"
+
+	headers := []string{
+		"编号", "主机名", "用户名", "MAC地址", "IP地址", "操作系统", 
+		"CPU型号", "物理核心数", "逻辑核心数", "GPU信息", "内存大小(GB)", 
+		"在线状态", "上次上线时间", "首次发现时间", "签到状态", "学生姓名", "学号",
+	}
+
+	for colIdx, header := range headers {
+		cell, _ := excelize.CoordinatesToCellName(colIdx+1, 1)
+		f.SetCellValue(sheetName, cell, header)
+	}
+
+	for rowIdx, d := range devices {
+		row := rowIdx + 2
+
+		onlineStr := "离线"
+		if d.Connected {
+			onlineStr = "在线"
+		}
+
+		checkinStr := "未签到"
+		if d.CheckinStatus == 1 {
+			checkinStr = "已签到"
+		} else if d.CheckinStatus == 2 {
+			checkinStr = "已签退"
+		}
+
+		memGB := float64(d.MemoryTotal) / 1024 / 1024 / 1024
+
+		f.SetCellValue(sheetName, getCell(1, row), d.AssignedID)
+		f.SetCellValue(sheetName, getCell(2, row), d.Hostname)
+		f.SetCellValue(sheetName, getCell(3, row), d.Username)
+		f.SetCellValue(sheetName, getCell(4, row), d.MacAddress)
+		f.SetCellValue(sheetName, getCell(5, row), d.LocalIP)
+		f.SetCellValue(sheetName, getCell(6, row), d.OSPrettyName)
+		f.SetCellValue(sheetName, getCell(7, row), d.CPUModel)
+		f.SetCellValue(sheetName, getCell(8, row), d.CPUPhysicalCores)
+		f.SetCellValue(sheetName, getCell(9, row), d.CPULogicalCores)
+		f.SetCellValue(sheetName, getCell(10, row), d.GPUInfo)
+		f.SetCellFloat(sheetName, getCell(11, row), memGB, 2, 64)
+		f.SetCellValue(sheetName, getCell(12, row), onlineStr)
+		f.SetCellValue(sheetName, getCell(13, row), formatTime(d.LastSeen))
+		f.SetCellValue(sheetName, getCell(14, row), formatTime(d.FirstSeen))
+		f.SetCellValue(sheetName, getCell(15, row), checkinStr)
+		f.SetCellValue(sheetName, getCell(16, row), d.StudentName)
+		f.SetCellValue(sheetName, getCell(17, row), d.StudentNum)
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", "attachment; filename=devices_export.xlsx")
+
+	if err := f.Write(w); err != nil {
+		log.Println("[device-export] write error:", err)
+	}
+}
+
+func formatTime(val string) string {
+	if val == "" {
+		return "-"
+	}
+	t, err := time.Parse(time.RFC3339, val)
+	if err != nil {
+		return val
+	}
+	return t.Format("2006-01-02 15:04:05")
+}
+
+func getCell(col, row int) string {
+	cell, _ := excelize.CoordinatesToCellName(col, row)
+	return cell
 }

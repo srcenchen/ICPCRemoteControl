@@ -29,7 +29,10 @@ function renderDevices(devices) {
     var html = '' +
         '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">' +
             '<h2 class="section-title" style="margin:0;">设备管理</h2>' +
-            '<button class="btn btn-danger btn-sm" onclick="resetAllDevices()">&#x21BA; 重置所有设备</button>' +
+            '<div style="display:flex; gap:8px;">' +
+                '<a class="btn btn-sm" style="text-decoration:none; display:inline-flex; align-items:center;" href="/api/devices/export" download>导出 Excel</a>' +
+                '<button class="btn btn-danger btn-sm" onclick="resetAllDevices()">&#x21BA; 重置所有设备</button>' +
+            '</div>' +
         '</div>' +
         '<div class="table-container">' +
             '<table>' +
@@ -94,7 +97,7 @@ function renderDeviceDetail(device) {
                     '<div class="detail-item"><div class="label">终端</div><div class="value">' + escapeHtml(device.terminal) + '</div></div>' +
                     '<div class="detail-item"><div class="label">桌面环境</div><div class="value">' + escapeHtml(device.de_name) + '</div></div>' +
                     '<div class="detail-item"><div class="label">窗口管理器</div><div class="value">' + escapeHtml(device.wm_name) + '</div></div>' +
-                    '<div class="detail-item"><div class="label">运行时间</div><div class="value">' + Math.floor(device.uptime / 60) + '时 ' + (device.uptime % 60) + '分</div></div>' +
+                    '<div class="detail-item"><div class="label">运行时间</div><div class="value">' + formatUptime(device.uptime) + '</div></div>' +
                     '<div class="detail-item"><div class="label">签到状态</div><div class="value">' + getCheckinStatusLabel(device.checkin_status) + '</div></div>' +
                     '<div class="detail-item"><div class="label">学生信息</div><div class="value">' + (device.student_name ? escapeHtml(device.student_name) + ' (' + escapeHtml(device.student_num) + ')' : '-') + '</div></div>' +
                 '</div>' +
@@ -112,8 +115,8 @@ function renderDeviceDetail(device) {
                 '<div class="detail-grid">' +
                     '<div class="detail-item"><div class="label">磁盘</div><div class="value">' + escapeHtml(diskText) + '</div></div>' +
                     '<div class="detail-item"><div class="label">网络</div><div class="value">' + escapeHtml(ipText) + '</div></div>' +
-                    '<div class="detail-item"><div class="label">首次上线</div><div class="value">' + device.first_seen + '</div></div>' +
-                    '<div class="detail-item"><div class="label">最后在线</div><div class="value">' + device.last_seen + '</div></div>' +
+                    '<div class="detail-item"><div class="label">首次上线</div><div class="value">' + formatDateTime(device.first_seen) + '</div></div>' +
+                    '<div class="detail-item"><div class="label">最后在线</div><div class="value">' + formatDateTime(device.last_seen) + '</div></div>' +
                 '</div>' +
 
                 '<div style="margin-top:24px; display:flex; gap:12px;">' +
@@ -183,4 +186,29 @@ function resetAllDevices() {
             alert(err);
         }
     });
+}
+
+function formatUptime(seconds) {
+    if (!seconds || seconds <= 0) return "0分";
+    var totalMinutes = Math.floor(seconds / 60);
+    var hours = Math.floor(totalMinutes / 60);
+    var minutes = totalMinutes % 60;
+    
+    if (hours > 0) {
+        return hours + "时 " + minutes + "分";
+    }
+    return minutes + "分";
+}
+
+function formatDateTime(str) {
+    if (!str) return "-";
+    try {
+        var d = new Date(str);
+        if (isNaN(d.getTime())) return str;
+        var pad = function(n) { return n < 0 ? '0' : (n < 10 ? '0' + n : n); };
+        return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + ' ' +
+               pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    } catch(e) {
+        return str;
+    }
 }

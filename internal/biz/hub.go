@@ -15,10 +15,11 @@ import (
 
 // ClientConn wraps a TCP connection from a contestant machine.
 type ClientConn struct {
-	AssignedID int
-	Conn       net.Conn
-	Send       chan []byte // serialized write channel
-	Hub        *Hub
+	AssignedID      int
+	Conn            net.Conn
+	Send            chan []byte // serialized write channel
+	Hub             *Hub
+	LastSeenUpdated time.Time
 }
 
 // AdminConn wraps an admin browser WebSocket connection.

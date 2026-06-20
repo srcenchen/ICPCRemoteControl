@@ -67,6 +67,17 @@ func (r *DeviceRepo) Create(d *model.Device) error {
 func (r *DeviceRepo) Update(d *model.Device) error {
 	now := time.Now().Format(time.RFC3339)
 	d.UpdatedAt = now
+	if d.Connected {
+		d.LastSeen = now
+	} else if d.LastSeen == "" {
+		var existingLastSeen string
+		_ = r.db.QueryRow(`SELECT last_seen FROM devices WHERE assigned_id=?`, d.AssignedID).Scan(&existingLastSeen)
+		if existingLastSeen != "" {
+			d.LastSeen = existingLastSeen
+		} else {
+			d.LastSeen = now
+		}
+	}
 
 	query := `UPDATE devices SET
 		mac_address=?, hostname=?, username=?, os_name=?, os_version=?, os_pretty_name=?,
@@ -178,6 +189,46 @@ func (r *DeviceRepo) GetAll() ([]model.DeviceSummary, error) {
 	}
 	if devices == nil {
 		devices = []model.DeviceSummary{}
+	}
+	return devices, rows.Err()
+}
+
+// GetAllFull returns all devices with all fields.
+func (r *DeviceRepo) GetAllFull() ([]model.Device, error) {
+	query := `SELECT id, assigned_id, mac_address, hostname, username, os_name, os_version, os_pretty_name,
+		kernel_release, kernel_arch, cpu_model, cpu_physical_cores, cpu_logical_cores,
+		cpu_packages, gpu_info, memory_total, memory_used, disk_info, local_ip,
+		de_name, wm_name, shell, terminal, display_info, uptime, packages,
+		fastfetch_raw, connected, last_seen, first_seen, updated_at,
+		checkin_status, student_name, student_num, checkin_time, checkout_time
+		FROM devices ORDER BY assigned_id`
+
+	rows, err := r.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("get all full: %w", err)
+	}
+	defer rows.Close()
+
+	var devices []model.Device
+	for rows.Next() {
+		var d model.Device
+		var connected int
+		err := rows.Scan(
+			&d.ID, &d.AssignedID, &d.MacAddress, &d.Hostname, &d.Username, &d.OSName, &d.OSVersion, &d.OSPrettyName,
+			&d.KernelRelease, &d.KernelArch, &d.CPUModel, &d.CPUPhysicalCores, &d.CPULogicalCores,
+			&d.CPUPackages, &d.GPUInfo, &d.MemoryTotal, &d.MemoryUsed, &d.DiskInfo, &d.LocalIP,
+			&d.DEName, &d.WMName, &d.Shell, &d.Terminal, &d.DisplayInfo, &d.Uptime, &d.Packages,
+			&d.FastfetchRaw, &connected, &d.LastSeen, &d.FirstSeen, &d.UpdatedAt,
+			&d.CheckinStatus, &d.StudentName, &d.StudentNum, &d.CheckinTime, &d.CheckoutTime,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan full device: %w", err)
+		}
+		d.Connected = connected != 0
+		devices = append(devices, d)
+	}
+	if devices == nil {
+		devices = []model.Device{}
 	}
 	return devices, rows.Err()
 }
@@ -303,6 +354,16 @@ func (r *DeviceRepo) Checkout(assignedID int) error {
 	_, err := r.db.Exec(
 		`UPDATE devices SET checkin_status=2, checkout_time=?, updated_at=? WHERE assigned_id=?`,
 		now, now, assignedID,
+	)
+	return err
+}
+
+// RestoreCheckout restores a checked-out device back to checked-in status (1).
+func (r *DeviceRepo) RestoreCheckout(assignedID int) error {
+	now := time.Now().Format(time.RFC3339)
+	_, err := r.db.Exec(
+		`UPDATE devices SET checkin_status=1, checkout_time='', updated_at=? WHERE assigned_id=?`,
+		now, assignedID,
 	)
 	return err
 }

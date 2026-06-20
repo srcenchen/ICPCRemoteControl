@@ -57,7 +57,9 @@ function renderCheckinTable(devices) {
                 '<button class="btn btn-sm btn-danger" onclick="doResetCheckin(' + d.assigned_id + ')">解除</button>';
         } else if (d.checkin_status === 2) {
             statusHtml = '<span class="badge badge-pending">已签退</span>';
-            actionHtml = '<span style="color: var(--text-secondary); font-size: 12px;">已完成</span>';
+            actionHtml = '' +
+                '<button class="btn btn-sm btn-primary" style="margin-right:4px;" onclick="doRestoreCheckout(' + d.assigned_id + ')">恢复</button>' +
+                '<button class="btn btn-sm btn-danger" onclick="doResetCheckin(' + d.assigned_id + ')">撤销</button>';
         }
 
         return '<tr>' +
@@ -74,7 +76,10 @@ function renderCheckinTable(devices) {
     var html = '' +
         '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">' +
             '<h2 class="section-title" style="margin:0;">设备签到列表</h2>' +
-            '<button class="btn btn-sm btn-danger" onclick="doResetAllCheckin()">解除全部签到</button>' +
+            '<div style="display:flex; gap:8px;">' +
+                '<a class="btn btn-sm" style="text-decoration:none; display:inline-flex; align-items:center;" href="/api/checkin/export" download>导出 Excel</a>' +
+                '<button class="btn btn-sm btn-danger" onclick="doResetAllCheckin()">解除全部签到</button>' +
+            '</div>' +
         '</div>' +
         '<div class="table-container">' +
             '<table>' +
@@ -166,6 +171,23 @@ function doResetCheckin(assignedID) {
         },
         error: function(xhr) {
             var err = "解除签到失败";
+            try { err = JSON.parse(xhr.responseText).error || err; } catch(e) {}
+            alert(err);
+        }
+    });
+}
+
+function doRestoreCheckout(assignedID) {
+    if (!confirm("确定要恢复设备 #" + assignedID + " 的签到状态（撤销签退）吗？")) return;
+
+    $.ajax({
+        url: "/api/checkin/" + assignedID + "/restore",
+        method: "POST",
+        success: function() {
+            loadCheckin();
+        },
+        error: function(xhr) {
+            var err = "恢复签到失败";
             try { err = JSON.parse(xhr.responseText).error || err; } catch(e) {}
             alert(err);
         }
