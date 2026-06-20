@@ -50,6 +50,7 @@ func New(cfg Config) *Server {
 
 	mux.HandleFunc("GET /api/stats", cfg.StatsH.GetStats)
 	mux.HandleFunc("GET /api/devices", cfg.DeviceH.List)
+	mux.HandleFunc("GET /api/devices/export", cfg.DeviceH.ExportXLSX)
 	mux.HandleFunc("GET /api/devices/{id}", cfg.DeviceH.Get)
 	mux.HandleFunc("DELETE /api/devices/{id}", cfg.DeviceH.Delete)
 	mux.HandleFunc("POST /api/devices/reset", cfg.DeviceH.Reset)
@@ -72,10 +73,13 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("POST /api/network/remove", cfg.NetworkH.Remove)
 
 	mux.HandleFunc("GET /api/checkin", cfg.CheckinH.List)
+	mux.HandleFunc("GET /api/checkin/export", cfg.CheckinH.ExportXLSX)
 	mux.HandleFunc("GET /api/checkin/stats", cfg.CheckinH.Stats)
 	mux.HandleFunc("POST /api/checkin/{id}/checkin", cfg.CheckinH.DoCheckin)
 	mux.HandleFunc("POST /api/checkin/{id}/checkout", cfg.CheckinH.DoCheckout)
+	mux.HandleFunc("POST /api/checkin/{id}/restore", cfg.CheckinH.DoRestoreCheckout)
 	mux.HandleFunc("POST /api/checkin/{id}/reset", cfg.CheckinH.Reset)
+
 	mux.HandleFunc("POST /api/checkin/swap", cfg.CheckinH.Swap)
 	mux.HandleFunc("POST /api/checkin/reset-all", cfg.CheckinH.ResetAll)
 

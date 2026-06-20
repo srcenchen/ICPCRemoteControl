@@ -14,8 +14,7 @@ import (
 	"ICPCRemoteControl/internal/data"
 	"ICPCRemoteControl/internal/model"
 )
-
-const maxTCPConns = 500
+const maxTCPConns = 5000
 
 // readTimeout is the maximum interval between messages from a client before the
 // server considers the connection dead. The client sends a heartbeat every 15s.
@@ -380,6 +379,19 @@ func (h *TCPHandler) Handle(conn net.Conn) {
 			select {
 			case clientConn.Send <- pongData:
 			default:
+			}
+
+			// Throttle database updates for last_seen to once every 60 seconds per client.
+			if time.Since(clientConn.LastSeenUpdated) > 60*time.Second {
+				clientConn.LastSeenUpdated = time.Now()
+				if err := h.deviceRepo.UpdateConnected(assignedID, true); err != nil {
+					log.Printf("[tcp] failed to update last_seen for device %d: %v", assignedID, err)
+				}
+				// Also notify admins of status update to refresh last_seen on web UI
+				h.hub.BroadcastAdminEvent("device_status_changed", map[string]interface{}{
+					"assigned_id": assignedID,
+					"connected":   true,
+				})
 			}
 
 		default:

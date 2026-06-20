@@ -223,6 +223,11 @@ func ParseFastFetch(raw []byte) (*Device, error) {
 			var u FFUptimeResult
 			if json.Unmarshal(entry.Result, &u) == nil {
 				d.Uptime = u.Uptime
+			} else {
+				var secs int64
+				if json.Unmarshal(entry.Result, &secs) == nil {
+					d.Uptime = secs
+				}
 			}
 		case "Display":
 			var displays []FFDisplayEntry
