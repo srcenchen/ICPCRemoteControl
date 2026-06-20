@@ -99,14 +99,14 @@ function renderPage(settings) {
         '<div class="settings-card">' +
             '<h3>修改管理员密码</h3>' +
             '<p class="settings-desc">修改用于登录后台的管理员密码。</p>' +
-            '<form id="password-form">' +
-                '<div class="form-group" style="margin-bottom:12px;">' +
-                    '<label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">旧密码</label>' +
-                    '<input type="password" id="pwd-old" placeholder="请输入旧密码" style="width:100%; box-sizing:border-box;">' +
+            '<form id="password-form" style="max-width:320px;">' +
+                '<div class="form-group" style="margin-bottom:12px; display:flex; flex-direction:column; gap:4px; align-items:stretch;">' +
+                    '<label style="font-weight:600; font-size:13px; color:var(--text-secondary);">旧密码</label>' +
+                    '<input type="password" id="pwd-old" placeholder="请输入旧密码">' +
                 '</div>' +
-                '<div class="form-group" style="margin-bottom:16px;">' +
-                    '<label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">新密码</label>' +
-                    '<input type="password" id="pwd-new" placeholder="请输入新密码" style="width:100%; box-sizing:border-box;">' +
+                '<div class="form-group" style="margin-bottom:16px; display:flex; flex-direction:column; gap:4px; align-items:stretch;">' +
+                    '<label style="font-weight:600; font-size:13px; color:var(--text-secondary);">新密码</label>' +
+                    '<input type="password" id="pwd-new" placeholder="请输入新密码">' +
                 '</div>' +
                 '<button type="submit" class="btn btn-primary">修改密码</button>' +
                 '<div id="password-result" class="settings-result"></div>' +

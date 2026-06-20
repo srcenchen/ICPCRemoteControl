@@ -423,7 +423,7 @@ func runWatermarkLoop() error {
 		host, ip, userStr, statusVal := getWatermarkData()
 
 		// Calculate target dimensions
-		targetW, targetH, targetX, targetY := 250, 78, ws-250-3, hs-78-45
+		targetW, targetH, targetX, targetY := 250, 78, ws-250-3, hs-78-50
 		if isKiosk {
 			prefixText := fmt.Sprintf("%s | %s | 状态: ", host, ip)
 			d := &font.Drawer{Face: face}
