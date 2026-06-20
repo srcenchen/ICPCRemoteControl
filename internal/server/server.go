@@ -42,11 +42,18 @@ type Config struct {
 	NetworkH    *service.NetworkHandler
 	CheckinH    *service.CheckinHandler
 	BroadcastH  *service.BroadcastHandler
+	AuthH       *service.AuthHandler
 }
 
 // New creates a new Server.
 func New(cfg Config) *Server {
 	mux := http.NewServeMux()
+
+	if cfg.AuthH != nil {
+		mux.HandleFunc("POST /api/auth/login", cfg.AuthH.Login)
+		mux.HandleFunc("POST /api/auth/logout", cfg.AuthH.Logout)
+		mux.HandleFunc("POST /api/auth/password", cfg.AuthH.ChangePassword)
+	}
 
 	mux.HandleFunc("GET /api/stats", cfg.StatsH.GetStats)
 	mux.HandleFunc("GET /api/devices", cfg.DeviceH.List)
@@ -139,6 +146,9 @@ func New(cfg Config) *Server {
 	mux.Handle("GET /", noCacheFS)
 
 	var handler http.Handler = mux
+	if cfg.AuthH != nil {
+		handler = cfg.AuthH.AuthMiddleware(mux)
+	}
 	handler = Recovery(Logger(handler))
 
 	return &Server{

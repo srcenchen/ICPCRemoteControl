@@ -93,6 +93,24 @@ function renderPage(settings) {
                 '<button id="btn-save-presets" class="btn btn-primary">保存预设</button>' +
             '</div>' +
             '<div id="presets-result" class="settings-result"></div>' +
+        '</div>' +
+
+        // Change password section
+        '<div class="settings-card">' +
+            '<h3>修改管理员密码</h3>' +
+            '<p class="settings-desc">修改用于登录后台的管理员密码。</p>' +
+            '<form id="password-form">' +
+                '<div class="form-group" style="margin-bottom:12px;">' +
+                    '<label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">旧密码</label>' +
+                    '<input type="password" id="pwd-old" placeholder="请输入旧密码" style="width:100%; box-sizing:border-box;">' +
+                '</div>' +
+                '<div class="form-group" style="margin-bottom:16px;">' +
+                    '<label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">新密码</label>' +
+                    '<input type="password" id="pwd-new" placeholder="请输入新密码" style="width:100%; box-sizing:border-box;">' +
+                '</div>' +
+                '<button type="submit" class="btn btn-primary">修改密码</button>' +
+                '<div id="password-result" class="settings-result"></div>' +
+            '</form>' +
         '</div>';
 
     $("#content").html(html);
@@ -191,6 +209,24 @@ function renderPage(settings) {
                 showResult("presets-result", "预设已保存", "success");
             },
             error: function(xhr) { showResult("presets-result", parseError(xhr), "error"); }
+        });
+    });
+
+    // Password form.
+    $("#password-form").on("submit", function(e) {
+        e.preventDefault();
+        var oldPwd = $("#pwd-old").val();
+        var newPwd = $("#pwd-new").val();
+        if (!oldPwd || !newPwd) { showResult("password-result", "旧密码和新密码不能为空", "error"); return; }
+        $.ajax({
+            url: "/api/auth/password", method: "POST", contentType: "application/json",
+            data: JSON.stringify({old_password: oldPwd, new_password: newPwd}),
+            success: function() {
+                showResult("password-result", "密码修改成功", "success");
+                $("#pwd-old").val("");
+                $("#pwd-new").val("");
+            },
+            error: function(xhr) { showResult("password-result", parseError(xhr), "error"); }
         });
     });
 }

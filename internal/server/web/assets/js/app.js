@@ -12,6 +12,25 @@ $(function() {
         navigateTo(page);
     });
 
+    $("#btn-logout").on("click", function(e) {
+        e.preventDefault();
+        if (!confirm("确定要退出登录吗？")) return;
+        $.ajax({
+            url: "/api/auth/logout",
+            method: "POST",
+            success: function() {
+                window.location.href = "/login.html";
+            }
+        });
+    });
+
+    // Set up global AJAX setup to handle 401 unauthorized errors
+    $(document).ajaxError(function(event, jqXHR, ajaxSettings, thrownError) {
+        if (jqXHR.status === 401) {
+            window.location.href = "/login.html";
+        }
+    });
+
     // Restore last page from URL hash, or default to dashboard.
     var hash = location.hash.replace("#", "");
     var validPages = ["dashboard", "devices", "checkin", "commands", "network", "broadcast", "settings"];

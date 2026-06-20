@@ -72,6 +72,7 @@ func main() {
 	broadcastHandler := service.NewBroadcastHandler(broadcastRepo)
 	networkHandler := service.NewNetworkHandler(settings, hub, commandRepo, dispatcher)
 	checkinHandler := service.NewCheckinHandler(deviceRepo, hub)
+	authHandler := service.NewAuthHandler(settings)
 
 	// TCP handler for client connections.
 	tcpHandler := service.NewTCPHandler(hub, deviceRepo, commandRepo, idAssigner, dispatcher, settings)
@@ -98,6 +99,7 @@ func main() {
 		NetworkH:    networkHandler,
 		CheckinH:    checkinHandler,
 		BroadcastH:  broadcastHandler,
+		AuthH:       authHandler,
 	}
 
 	srv := server.New(cfg)
