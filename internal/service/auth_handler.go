@@ -232,8 +232,9 @@ func (h *AuthHandler) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
-		// Exclude public paths
-		if path == "/login.html" ||
+		// Exclude public paths — SPA root + static assets + broadcast display pages
+		if path == "/" ||
+			path == "/index.html" ||
 			path == "/api/auth/login" ||
 			strings.HasPrefix(path, "/assets/") ||
 			strings.HasPrefix(path, "/broadcast/") ||
@@ -286,6 +287,6 @@ func (h *AuthHandler) unauthorized(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Unauthorized"})
 	} else {
-		http.Redirect(w, r, "/login.html", http.StatusFound)
+		http.Redirect(w, r, "/", http.StatusFound)
 	}
 }

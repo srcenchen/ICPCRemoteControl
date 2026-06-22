@@ -35,6 +35,7 @@ type ClientProgress struct {
 	Status      string  `json:"status"` // "idle", "downloading", "completed", "failed", "cancelled"
 	Error       string  `json:"error,omitempty"`
 	UpdatedAt   string  `json:"updated_at"`
+	lastActivity time.Time // not serialized; used for timeout detection
 }
 
 type DistributeTask struct {
@@ -130,12 +131,6 @@ func (mgr *DistributionManager) ClearAllFiles() error {
 // StartTask creates and runs a sequential P2P file distribution task
 func (mgr *DistributionManager) StartTask(files []string, saveDir string, targetIDs []int, serverIP string, postCmd string) (*DistributeTask, error) {
 	mgr.taskMu.Lock()
-	mgr.taskMu.Unlock() // Wait, let's keep the original lock pattern!
-	// Wait, let's look at lines 116-117 in the original:
-	// mgr.taskMu.Lock()
-	// defer mgr.taskMu.Unlock()
-	// Let's use the precise code:
-	mgr.taskMu.Lock()
 	defer mgr.taskMu.Unlock()
 
 	if mgr.activeTask != nil && mgr.activeTask.Status == "running" {
@@ -155,12 +150,8 @@ func (mgr *DistributionManager) StartTask(files []string, saveDir string, target
 	if len(targetIDs) == 0 {
 		// All online devices
 		mgr.hub.BroadcastAdminEvent("distribute_log", "未指定目标设备，自动选择所有在线选手机进行分发")
-		// Get all clients from hub
-		// A simple read connection IDs is clean
-		for i := 1; i <= 200; i++ {
-			if mgr.hub.IsOnline(i) {
-				finalTargets = append(finalTargets, i)
-			}
+		for _, c := range mgr.hub.GetAllClients() {
+			finalTargets = append(finalTargets, c.AssignedID)
 		}
 	} else {
 		finalTargets = targetIDs
@@ -178,10 +169,11 @@ func (mgr *DistributionManager) StartTask(files []string, saveDir string, target
 			// We don't have hostname in client connection directly, but we can query or let it resolve in UI
 		}
 		progresses[deviceID] = &ClientProgress{
-			DeviceID:  deviceID,
-			Hostname:  hostname,
-			Status:    "idle",
-			UpdatedAt: time.Now().Format("2006-01-02 15:04:05"),
+			DeviceID:     deviceID,
+			Hostname:     hostname,
+			Status:       "idle",
+			UpdatedAt:    time.Now().Format("2006-01-02 15:04:05"),
+			lastActivity: time.Now(),
 		}
 	}
 
@@ -259,6 +251,7 @@ func (mgr *DistributionManager) HandleProgressReport(msg model.DistributeProgres
 		p.Status = msg.Status
 		p.Error = msg.Error
 		p.UpdatedAt = time.Now().Format("2006-01-02 15:04:05")
+		p.lastActivity = time.Now()
 	}
 	t.mu.Unlock()
 
@@ -418,7 +411,10 @@ func (t *DistributeTask) run(mgr *DistributionManager) {
 		t.mu.RUnlock()
 		mgr.hub.BroadcastAdminEvent("distribute_progress_update", t)
 
-		// Wait loop
+		// Wait loop: checks progress every second.
+		// Clients that haven't reported within 45 s are considered timed out (Hub
+		// already disconnected them after its 30-s heartbeat deadline).
+		const clientTimeout = 45 * time.Second
 		for {
 			time.Sleep(1 * time.Second)
 
@@ -430,16 +426,22 @@ func (t *DistributeTask) run(mgr *DistributionManager) {
 				return
 			}
 
-			// Check if all active clients finished (status != downloading)
-			t.mu.RLock()
+			t.mu.Lock()
 			allFinished := true
 			for _, p := range t.Progresses {
-				if p.Status == "downloading" || p.Status == "idle" {
-					allFinished = false
-					break
+				switch p.Status {
+				case "downloading", "idle":
+					// Mark as timed-out if the client fell silent (disconnected or hung).
+					if time.Since(p.lastActivity) > clientTimeout {
+						p.Status = "failed"
+						p.Error = "timeout: no progress update (client disconnected?)"
+						p.UpdatedAt = time.Now().Format("2006-01-02 15:04:05")
+					} else {
+						allFinished = false
+					}
 				}
 			}
-			t.mu.RUnlock()
+			t.mu.Unlock()
 
 			if allFinished {
 				log.Printf("[dist] file %s distribution finished", file)
@@ -527,10 +529,8 @@ func (mgr *DistributionManager) RunPrecheck(serverIP string, targetIDs []int) ([
 	// Resolve targets
 	var finalTargets []int
 	if len(targetIDs) == 0 {
-		for i := 1; i <= 200; i++ {
-			if mgr.hub.IsOnline(i) {
-				finalTargets = append(finalTargets, i)
-			}
+		for _, c := range mgr.hub.GetAllClients() {
+			finalTargets = append(finalTargets, c.AssignedID)
 		}
 	} else {
 		finalTargets = targetIDs

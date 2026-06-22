@@ -10,6 +10,7 @@ import (
 	"go-silver-core/internal/gsp_sdk/model"
 	"hash/crc32"
 	"log"
+	"net"
 	"strconv"
 )
 
@@ -120,9 +121,12 @@ func (g *GspSdk) WantChunk(i int64) (*model.WantChunkResp, error) {
 	return &respJ, nil
 }
 
-// PeerReg Peer 节点注册
+// PeerReg Peer 节点注册。
+// 使用独立的长连接（不归还连接池），保持该连接存活 = 本节点在 Tracker 上注册存活。
+// 连接断开时 Tracker 自动清理此 Peer 的所有分块记录。
 func (g *GspSdk) PeerReg(peerPort int, uuid string) error {
-	controlConn, err := g.connPool.GetConn(g.srvAddr)
+	// 直接拨号，不从连接池借，避免耗尽连接池供其他操作使用
+	controlConn, err := net.Dial("tcp", g.srvAddr)
 	if err != nil {
 		return err
 	}
@@ -132,9 +136,13 @@ func (g *GspSdk) PeerReg(peerPort int, uuid string) error {
 		Port:    strconv.Itoa(peerPort),
 		UUID:    uuid,
 	})
-	codec.EncodeTo(controlConn, gsp.TypeJSON, jsonReq)
-	// 控制流保活
+	if err := codec.EncodeTo(controlConn, gsp.TypeJSON, jsonReq); err != nil {
+		controlConn.Close()
+		return err
+	}
+	// 持有控制连接直到 Tracker 关闭，保活用。
 	go func() {
+		defer controlConn.Close()
 		buf := [1]byte{}
 		_, _ = codec.Decode(controlConn, buf[:])
 		log.Println("[client] 与分发服务端控制连接断开")

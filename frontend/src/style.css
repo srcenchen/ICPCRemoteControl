@@ -1,0 +1,64 @@
+@import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
+
+@theme {
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-success: #10b981;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+}
+
+/* xterm.js styles */
+.xterm-container {
+  height: 100%;
+  background: #1e1e1e;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.xterm-container .xterm {
+  padding: 8px;
+}
+
+/* CodeMirror styles */
+.cm-editor {
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  font-size: 13px;
+  min-height: 180px;
+}
+.cm-editor.cm-focused {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+.cm-editor .cm-content {
+  font-family: 'Fira Code', 'Consolas', 'SF Mono', monospace;
+}
+.cm-scroller {
+  min-height: 180px;
+}
+
+/* Transitions */
+.page-enter-active, .page-leave-active {
+  transition: opacity 0.15s ease;
+}
+.page-enter-from, .page-leave-to {
+  opacity: 0;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

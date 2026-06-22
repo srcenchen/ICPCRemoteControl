@@ -26,7 +26,7 @@ type ToolSession interface {
 	AddBlockOwner(i int64, uuid string)
 	RemovePeer(addr string)
 	AddPeer(uuid string, addr string)
-	UpdatePeer(providerUuid string, speed int64)
+	UpdatePeer(providerUuid string, speed int64, failed bool)
 	IsMain() bool
 	AcquireUploadSlot() error
 	ReleaseUploadSlot()
@@ -143,6 +143,6 @@ func PeerReport(conn net.Conn, data []byte, tool ToolSession) {
 	}
 	slog.Info(fmt.Sprintf("对端状态返回：设备UUID: %s ProviderUUID: %s Speed: %d mb/s Status: %s", wc.UUID, wc.ProviderUUID, wc.Speed, wc.Status))
 	if wc.ProviderUUID != "" {
-		tool.UpdatePeer(wc.ProviderUUID, wc.Speed)
+		tool.UpdatePeer(wc.ProviderUUID, wc.Speed, wc.Status == "failed")
 	}
 }

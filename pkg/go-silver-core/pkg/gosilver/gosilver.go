@@ -8,6 +8,7 @@ import (
 	"go-silver-core/internal/gsp_sdk/model"
 	"go-silver-core/internal/gsp_sdk/server"
 	"go-silver-core/pkg/mempool"
+	"hash/fnv"
 	"log"
 	"math/rand/v2"
 	"os"
@@ -275,16 +276,25 @@ func (c *Client) runDownload(ctx context.Context) {
 		time.Sleep(5 * time.Second)
 	}
 
-	// 准备分块索引
+	// 准备分块索引 —— UUID 哈希错峰策略
+	//
+	// 问题：若所有客户端都从第0块开始（或纯随机），早期大家同时抢相同的块，
+	// P2P 在分发中段才能体现价值。
+	//
+	// 方案：用本节点 UUID 的 FNV 哈希计算一个固定偏移量，使不同客户端的起始
+	// 块均匀分散在 [0, ChunkNum) 区间内。起始块各不相同 → 较早的客户端优先
+	// 下载前段、较晚的客户端下载后段，彼此拥有对方缺少的块，P2P 价值更早出现。
+	//
+	// 每个客户端的下载序列是：[offset, offset+1, ..., ChunkNum-1, 0, 1, ..., offset-1]
+	// 这是一个循环偏移，保证所有块都会被下载。
+	h := fnv.New32a()
+	h.Write([]byte(c.session.UUID))
+	offset := int64(h.Sum32()) % int64(status.ChunkNum)
+
 	indices := make([]int64, status.ChunkNum)
 	for i := range indices {
-		indices[i] = int64(i)
+		indices[i] = (offset + int64(i)) % int64(status.ChunkNum)
 	}
-
-	// 打乱顺序，优化局域网 P2P
-	rand.Shuffle(len(indices), func(i, j int) {
-		indices[i], indices[j] = indices[j], indices[i]
-	})
 
 	var downloadedCount int64
 

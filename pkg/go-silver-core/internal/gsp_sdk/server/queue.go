@@ -35,52 +35,61 @@ func isReachableSubnet(reqIP, peerIP string) bool {
 	return false
 }
 
+// Want 为请求第 i 块的客户端选出最优数据源。
+//
+// 调度策略（优先级依次降低）：
+//  1. 同子网 Peer（isReachableSubnet 判定），得分不打折
+//  2. 跨子网 Peer，得分乘以 0.3 惩罚（仍可用，但不优先）
+//  3. 服务端自身（兜底，始终可用，但受 uploadSem 并发限制）
+//
+// 得分公式：(baseWeight + maxSpeed) / (connNum+1)² × subnetFactor / (failCount+1)
+//   - connNum: 当前已分配给此 Peer 但未完成的连接数
+//   - failCount: 连续下载失败次数，成功后清零
+//   - subnetFactor: 同子网=1.0，跨子网=0.3
 func (q *queue2) Want(i int64, conn net.Conn) {
 	c := gsp.Codec{}
 
-	// 获取请求客户端的 IP
 	reqIP := conn.RemoteAddr().String()
 	if host, _, err := net.SplitHostPort(reqIP); err == nil {
 		reqIP = host
 	}
 
-	// 锁定 Session 读取数据，保证线程安全
 	q.s.mu.RLock()
 
 	var bestUUID string
 	var maxScore float64 = -1.0
-	const baseWeight = 10.0
-	// 1. 遍历所有拥有此分块的 Peer
+	const (
+		baseWeight          = 10.0
+		crossSubnetPenalty  = 0.3 // 跨子网惩罚系数，>0 保证跨子网节点仍可使用
+	)
+
 	owners := q.s.ChunkOwners[i]
 	if len(owners) == 0 {
-		// 如果没人有，默认指向自己（或者报错）
 		bestUUID = q.s.UUID
 	} else {
 		for uid := range owners {
 			if uid == q.s.UUID {
-				continue
+				continue // 服务端本身作为兜底，不参与打分循环
 			}
-
 			peer, ok := q.s.Peers[uid]
-			if !ok {
+			if !ok || peer == nil {
 				continue
 			}
 
-			// 获取候选 Peer 的 IP
 			peerIP := peer.connAddr
 			if host, _, err := net.SplitHostPort(peerIP); err == nil {
 				peerIP = host
 			}
 
-			// 如果候选 Peer 和当前请求端不在同一个子网内，说明无法访问，过滤掉
+			// 子网系数：同子网满分，跨子网打折但不排除
+			subnetFactor := 1.0
 			if !isReachableSubnet(reqIP, peerIP) {
-				continue
+				subnetFactor = crossSubnetPenalty
 			}
 
-			// 核心算法：基础权重+实际速度 / (连接数+1)的平方
-			// 使用平方来快速衰减高并发节点的分数
-			denominator := float64(peer.connNum + 1)
-			score := (baseWeight + float64(peer.maxSpeed)) / (denominator * denominator)
+			// 失败降权：每次连续失败分数减半（failCount+1 作分母）
+			denominator := float64(peer.connNum+1) * float64(peer.failCount+1)
+			score := (baseWeight + float64(peer.maxSpeed)) / (denominator * denominator) * subnetFactor
 
 			if score > maxScore {
 				maxScore = score
@@ -89,37 +98,33 @@ func (q *queue2) Want(i int64, conn net.Conn) {
 		}
 	}
 
-	// 如果遍历完发现没有合适的第三方节点，回退到自己
 	if bestUUID == "" {
 		bestUUID = q.s.UUID
 	}
 
-	// 获取最终选定的 Peer 信息
 	targetPeer, ok := q.s.Peers[bestUUID]
 	var targetAddr string
 	if !ok || bestUUID == q.s.UUID {
 		bestUUID = q.s.UUID
-		targetAddr = "" // Session 自身的地址
+		targetAddr = ""
 	} else {
 		targetAddr = targetPeer.connAddr
 	}
-	q.s.mu.RUnlock() // 释放读锁
+	q.s.mu.RUnlock()
 
-	// 3. 更新连接数计数（需要写锁）
+	// 为选定的 Peer 递增活跃连接数
 	q.s.mu.Lock()
 	if p, ok := q.s.Peers[bestUUID]; ok {
 		p.connNum++
 	}
 	q.s.mu.Unlock()
 
-	// 4. 编码并发送响应
 	jc, _ := json.Marshal(model.WantChunkResp{
 		Index:    i,
 		Addr:     targetAddr,
-		CheckSum: 0, // 实际应用中应计算校验和
+		CheckSum: 0,
 		UUID:     bestUUID,
 	})
-
 	if err := c.EncodeTo(conn, gsp.TypeJSON, jc); err != nil {
 		slog.Error("发送 WantChunkResp 失败", "error", err)
 	}

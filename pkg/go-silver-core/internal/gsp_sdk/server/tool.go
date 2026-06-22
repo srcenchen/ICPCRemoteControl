@@ -64,14 +64,23 @@ func (s *Session) AddChunk(i int64, checksum uint32) {
 	}
 }
 
-// UpdatePeer 更新Peer信息，减少其并发连接数并更新最大速度
-func (s *Session) UpdatePeer(providerUuid string, speed int64) {
+// UpdatePeer 更新Peer信息：减少活跃连接数、更新速度、维护失败计数。
+// failed=true 时累加 failCount，会在调度得分中指数降权；成功时清零 failCount。
+func (s *Session) UpdatePeer(providerUuid string, speed int64, failed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if peer, ok := s.Peers[providerUuid]; ok && peer != nil {
-		if peer.connNum > 0 {
-			peer.connNum--
-		}
+	peer, ok := s.Peers[providerUuid]
+	if !ok || peer == nil {
+		return
+	}
+	if peer.connNum > 0 {
+		peer.connNum--
+	}
+	if failed {
+		peer.failCount++
+	} else {
+		// 成功一次清零失败计数，给节点重新赢得调度机会
+		peer.failCount = 0
 		if speed > 0 {
 			peer.maxSpeed = max(peer.maxSpeed, speed)
 		}

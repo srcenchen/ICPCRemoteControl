@@ -15,9 +15,10 @@ import (
 )
 
 type Peer struct {
-	connAddr string // 连接地址
-	connNum  int    // 连接数
-	maxSpeed int64  // 最大连接速度
+	connAddr  string // 连接地址
+	connNum   int    // 当前活跃连接数（调度时递增，完成/失败后递减）
+	maxSpeed  int64  // 历史最大速度 Mbps
+	failCount int    // 连续失败次数；成功后清零，用于调度降权
 }
 
 // Session 这里是发送端的Session
