@@ -19,3 +19,11 @@ Thumbs.db
 
 # Go build cache
 /vendor/
+
+# Node modules
+node_modules/
+frontend/node_modules/
+
+# Uploads and images
+data/broadcast/images/
+data/uploads/
