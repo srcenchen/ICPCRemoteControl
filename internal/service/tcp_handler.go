@@ -223,17 +223,15 @@ func (h *TCPHandler) Handle(conn net.Conn) {
 				log.Printf("[tcp] device %d: unmarshal command_output: %v", assignedID, err)
 				continue
 			}
-			// Persist output to DB immediately so history works for running commands.
+			// Accumulate output in memory, capped at 1MB to prevent OOM
 			h.obMu.Lock()
-			h.outputBuf[msg.CommandID] += msg.Line + "\n"
-			buf := h.outputBuf[msg.CommandID]
+			if len(h.outputBuf[msg.CommandID]) < 1024*1024 {
+				h.outputBuf[msg.CommandID] += msg.Line + "\n"
+			}
 			h.obMu.Unlock()
 			inFlightCmds[msg.CommandID] = true
-			// Update DB with accumulated output (lightweight, just a string update).
-			if cmd, err := h.commandRepo.GetByID(msg.CommandID); err == nil {
-				cmd.Output = buf
-				h.commandRepo.UpdateStatus(cmd)
-			}
+			
+			// Admin UI receives live updates via WebSocket
 			h.hub.BroadcastAdminEvent("command_output", model.CommandOutputEvent{
 				CommandID: msg.CommandID,
 				DeviceID:  assignedID,
@@ -482,6 +480,13 @@ func (h *TCPHandler) failInFlightCommands(inFlight map[int64]bool) {
 		if cmd.Status == model.CommandStatusDispatched || cmd.Status == model.CommandStatusPending {
 			cmd.Status = model.CommandStatusFailed
 			cmd.ErrorOutput = "client disconnected"
+			
+			h.obMu.Lock()
+			if buf, ok := h.outputBuf[cmdID]; ok {
+				cmd.Output = buf
+			}
+			h.obMu.Unlock()
+			
 			h.commandRepo.UpdateStatus(cmd)
 			if cmd.ParentID != nil {
 				h.dispatcher.UpdateBroadcastParentStatus(*cmd.ParentID)

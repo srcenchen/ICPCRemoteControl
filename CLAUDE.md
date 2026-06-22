@@ -9,84 +9,96 @@ ICPC 无锡学院 Linux 集控系统 — a centralized remote control system for
 - **Server**: Deployed on Linux, publishes via Avahi mDNS (`icpc-server.local`), provides a web UI
 - **Client (选手机)**: Contestant machines running as root, connect to server, report system info, accept remote commands
 
-## Tech Stack
-
-- Go 1.26 backend
-- SQLite3 (pure Go, no CGo — likely `modernc.org/sqlite` or similar)
-- jQuery frontend embedded in the Go server binary (single-binary deployment)
-
-## Directory Structure (planned)
-
-```
-cmd/
-  server.go    — server entrypoint
-  client.go    — client (contestant machine) entrypoint
-internal/
-  biz/         — business logic layer
-  data/        — data access / repository layer
-  model/       — data models / structs
-  server/      — HTTP server, API handlers, embedded frontend
-  service/     — service layer (orchestration between biz/data)
-```
-
-Standard Go project layout following clean architecture conventions.
-
 ## Commands
 
 ```bash
-# Build
+# Build both binaries
 go build ./...
 
-# Run server
-go run ./cmd/server.go
+# Run server (HTTP on :8080, TCP on :8081 by default)
+go run ./cmd/server/main.go
+go run ./cmd/server/main.go --port 8080 --tcp-port 8081 --db icpc.db --bind 192.168.1.1
 
-# Run client
-go run ./cmd/client.go
+# Run client (connects to icpc-server.local:8081 by default)
+go run ./cmd/client/main.go
 
 # Run tests
 go test ./...
-
-# Run a single test
-go test -run TestName ./internal/...
+go test -run TestName ./pkg/go-silver-core/...
 ```
 
-## Key Requirements (from 需求.md)
+## Architecture
 
-### Server
-1. On startup, publish via `avahi-publish -a -R icpc-server.local 0.0.0.0` for mDNS discovery
-2. Maintain persistent long connections to all client machines with automatic reconnection
-3. Assign each client an incremental numeric ID (starting from 1); client renames its hostname to this ID
-4. Store client machine info (hardware specs, OS details, etc.) in SQLite3
-5. Web UI with jQuery providing:
-   - **Dashboard** — current device status overview
-   - **Device Management** — device list with summaries, click for full details
-   - **Command Execution** — send commands to clients, with syntax-highlighted input
+### Two-process design
 
-### Client (选手机)
-1. Runs as **root**
-2. Discovers server via `icpc-server.local` (mDNS), with fallback: reads `~/server` file for a direct IP if the file is non-empty
-3. On first connection, requests an ID from the server, then renames its hostname to that ID
-4. Collects system specs via `fastfetch --format json > /tmp/spec.json` and reports to server
-5. Maintains a persistent long connection with reconnection logic
-6. Accepts and executes commands from the server (file-based or direct commands)
+**Server** (`cmd/server/`) exposes:
+- HTTP/WebSocket on `:8080` — web UI (embedded in binary via `//go:embed`), REST API, admin WebSocket (`/ws/admin`), browser terminal (`/ws/terminal/{id}`), broadcast display pages (`/broadcast/*`)
+- TCP on `:8081` — raw connections from contestant machines using the GSP protocol
 
-### fastfetch JSON Output
+**Client** (`cmd/client/`) runs as root on each contestant machine and maintains:
+- A persistent TCP connection to the server (heartbeat every 15s, reconnect every 5s on failure)
+- A local HTTP server on `:8090` for contestant check-in (embedded HTML page)
+- X11 watermark overlay (`watermark.go` via XGB + Shape extension) and screen capture stream (`screen.go`)
 
-The `fastfetch --format json` output is a JSON array of typed objects (`Title`, `OS`, `Host`, `Kernel`, `CPU`, `GPU`, `Memory`, `Disk`, `LocalIp`, `DE`, `WM`, etc.). The model layer should define structs to parse relevant fields from this output. See `需求.md` lines 16-363 for the full example schema.
+### Custom protocol: GSP (go-silver-core)
 
-### Client ID Assignment
+All TCP messages use the in-tree library at `pkg/go-silver-core/`, a local module (`replace go-silver-core => ./pkg/go-silver-core`).
 
-- IDs are monotonically incrementing integers starting from 1
-- When a client connects, the server assigns the next available ID
-- The client then renames its hostname to `cwxu-icpc-{ID}` (e.g., `cwxu-icpc-1`, `cwxu-icpc-2`, ...)
+Packet format: `[Type uint8][Length uint32][Payload bytes]`
+- `TypeJSON = 0x01` — control messages (JSON-encoded structs from `internal/model/message.go`)
+- `TypeFileChunk = 0x02` — binary file distribution chunks
 
-## Data Model Highlights
+All control message types are discriminated by a `"type"` JSON field. See `internal/model/message.go` for the full set.
 
-Key entities the system tracks per client machine:
-- ID (assigned by server)
-- Hostname, username
-- OS info (name, version, kernel)
-- Hardware (CPU model/cores, GPU, total memory, disk layout)
-- Network (IP addresses, interfaces)
-- Connection status (online/offline)
-- Shell, DE/WM info
+### Key message flows
+
+**Registration**: Client → `register` → Server assigns incremental ID (persisted to `/var/lib/icpc-client/id` on client) → `register_response` with `assigned_id` and `hostname_prefix` → client runs `hostnamectl set-hostname {prefix}-{ID}`.
+
+**Command execution**: Admin browser → `POST /api/commands` → `CommandHandler` → `CommandDispatcher.DispatchSingle/DispatchBroadcast` → `execute` message over TCP → client runs shell command → streaming `command_output` messages → `command_result` → Hub fans out to admin WebSockets.
+
+**File distribution**: Uses `go-silver-core` chunked transfer. Server acts as sender; clients pull chunks. Progress reported via `distribute_progress` messages.
+
+**Check-in**: Contestant submits form on `:8090` → client sends `checkin` over TCP with correlation ID → server validates and persists → `checkin_response` back to client → client HTTP handler unblocks via `checkinWaiters` map.
+
+### Dependency injection (server `main.go`)
+
+All wiring happens in `cmd/server/main.go` — no DI framework. Construction order: DB → repos → settings → biz layer (Hub, IDAssigner, CommandDispatcher) → service handlers → HTTP server + TCP listener.
+
+### Layer responsibilities
+
+| Layer | Package | Responsibility |
+|---|---|---|
+| model | `internal/model/` | Wire protocol structs (messages, fastfetch, device, command, broadcast) |
+| data | `internal/data/` | SQLite CRUD via `modernc.org/sqlite` (no CGo) |
+| biz | `internal/biz/` | Hub (connection registry), IDAssigner, CommandDispatcher |
+| service | `internal/service/` | HTTP handlers, TCP handler, terminal hub, settings, auth, distribution, broadcast WS |
+| server | `internal/server/` | Route registration, middleware (auth, logging, recovery), Avahi launch, embed |
+
+### Hub
+
+`biz.Hub` is the central connection registry. It maintains:
+- `clients map[int]*ClientConn` — active TCP connections keyed by assigned ID
+- `admins map[*AdminConn]bool` — active admin WebSocket connections
+
+All client/admin connect and disconnect events flow through channel-based `Run()` loop, and are fanned out to admin browsers as `AdminEvent` WebSocket messages.
+
+### Authentication
+
+JWT-based. `AuthHandler` issues tokens on `POST /api/auth/login`. The `AuthMiddleware` in `server.go` wraps the entire mux. Credentials and JWT secret are stored in SQLite via `SettingsRepo`. Rate limiting (5 attempts → block) is enforced in `LoginRateLimiter`.
+
+### Frontend
+
+All static assets live under `internal/server/web/` and are embedded at compile time. Stack: jQuery, CodeMirror (command editor), xterm.js (browser terminal), custom CSS. No build step — files are served directly.
+
+### Broadcast display
+
+Separate full-screen pages (`/broadcast/before`, `/broadcast/contesting`, `/broadcast/after`) consumed by contestant-machine browsers. State is pushed via `/ws/broadcast` WebSocket (`service.BroadcastWS` global). Client machines can query current state via `query_broadcast_state` TCP message.
+
+## Key files
+
+- `internal/model/message.go` — all TCP protocol message types (client↔server and server→browser)
+- `internal/biz/hub.go` — connection registry and admin event fan-out
+- `internal/service/tcp_handler.go` — server-side per-connection TCP read loop and message dispatch
+- `cmd/client/main.go` — client TCP loop, check-in HTTP bridge, command execution
+- `cmd/server/main.go` — server wiring / DI root
+- `pkg/go-silver-core/internal/gsp/` — GSP packet codec

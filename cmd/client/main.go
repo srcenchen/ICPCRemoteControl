@@ -26,6 +26,7 @@ import (
 	"go-silver-core/pkg/gosilver"
 
 	"github.com/creack/pty"
+	"github.com/jezek/xgb"
 )
 
 const (
@@ -868,12 +869,27 @@ func connectAndServe(serverAddr string, storedID *int) error {
 			}
 			if resp.Command != "" {
 				log.Printf("[client] applying initial broadcast command: %s", resp.Command)
-				cmd := exec.Command("sh", "-c", resp.Command)
-				if err := cmd.Start(); err != nil {
-					log.Printf("[client] failed to start broadcast command: %v", err)
-				} else {
-					go cmd.Wait()
-				}
+				go func(command string) {
+					// Wait for X11 desktop to be fully ready before launching GUI commands.
+					// On boot, TCP connects fast but the desktop may need 10-30s more.
+					if !waitForX11Ready(60*time.Second, 2*time.Second) {
+						log.Printf("[client] X11 not ready after timeout, executing broadcast command anyway: %s", command)
+					}
+					display := findDisplay()
+					xauth := findXAuthority()
+					cmd := exec.Command("sh", "-c", command)
+					cmd.Env = append(os.Environ(),
+						"DISPLAY="+display,
+					)
+					if xauth != "" {
+						cmd.Env = append(cmd.Env, "XAUTHORITY="+xauth)
+					}
+					if err := cmd.Start(); err != nil {
+						log.Printf("[client] failed to start broadcast command: %v", err)
+					} else {
+						go cmd.Wait()
+					}
+				}(resp.Command)
 			} else {
 				log.Printf("[client] no active broadcast state on startup")
 			}
@@ -950,6 +966,51 @@ func connectAndServe(serverAddr string, storedID *int) error {
 		case "pong":
 		}
 	}
+}
+
+// waitForX11Ready blocks until the X11 display is fully functional or the
+// timeout expires. Returns true if X11 became ready, false on timeout.
+// This prevents GUI commands (like full-firefox) from hanging when launched
+// during early boot before the desktop environment is fully initialized.
+func waitForX11Ready(timeout, interval time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		display := findDisplay()
+
+		// 1. Check that the X11 socket file exists.
+		displayNum := strings.TrimPrefix(display, ":")
+		if dotIdx := strings.Index(displayNum, "."); dotIdx >= 0 {
+			displayNum = displayNum[:dotIdx]
+		}
+		socketPath := "/tmp/.X11-unix/X" + displayNum
+		if _, err := os.Stat(socketPath); err != nil {
+			log.Printf("[x11-wait] X11 socket %s not found yet, waiting...", socketPath)
+			time.Sleep(interval)
+			continue
+		}
+
+		// 2. Check that XAUTHORITY is accessible.
+		xauth := findXAuthority()
+		if xauth == "" {
+			log.Printf("[x11-wait] XAUTHORITY not found yet, waiting...")
+			time.Sleep(interval)
+			continue
+		}
+
+		// 3. Try to actually connect to X11 to verify it is responsive.
+		os.Setenv("DISPLAY", display)
+		os.Setenv("XAUTHORITY", xauth)
+		conn, err := xgb.NewConn()
+		if err != nil {
+			log.Printf("[x11-wait] X11 connection failed: %v, waiting...", err)
+			time.Sleep(interval)
+			continue
+		}
+		conn.Close()
+		log.Printf("[x11-wait] X11 is ready (DISPLAY=%s, XAUTHORITY=%s)", display, xauth)
+		return true
+	}
+	return false
 }
 
 func sendJSON(ch chan<- []byte, v interface{}) {

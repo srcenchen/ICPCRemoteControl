@@ -58,7 +58,10 @@ func (r *DeviceRepo) Create(d *model.Device) error {
 	if err != nil {
 		return fmt.Errorf("insert device: %w", err)
 	}
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("get last insert id: %w", err)
+	}
 	d.ID = id
 	return nil
 }

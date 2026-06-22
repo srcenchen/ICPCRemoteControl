@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"ICPCRemoteControl/internal/data"
 	"ICPCRemoteControl/internal/model"
@@ -22,6 +23,12 @@ func NewCommandDispatcher(hub *Hub, commandRepo *data.CommandRepo) *CommandDispa
 
 // DispatchSingle sends a command to a specific device.
 func (d *CommandDispatcher) DispatchSingle(parentCmd *model.CommandLog) error {
+	if parentCmd.TargetID == nil {
+		parentCmd.Status = model.CommandStatusFailed
+		parentCmd.ErrorOutput = "target ID is missing"
+		d.commandRepo.UpdateStatus(parentCmd)
+		return fmt.Errorf("target ID is missing")
+	}
 	client := d.hub.GetClient(*parentCmd.TargetID)
 	if client == nil {
 		parentCmd.Status = model.CommandStatusFailed
@@ -35,12 +42,7 @@ func (d *CommandDispatcher) DispatchSingle(parentCmd *model.CommandLog) error {
 
 // DispatchBroadcast creates a child command for each connected device and dispatches them.
 func (d *CommandDispatcher) DispatchBroadcast(parentCmd *model.CommandLog) error {
-	d.hub.mu.RLock()
-	clients := make([]*ClientConn, 0, len(d.hub.clients))
-	for _, c := range d.hub.clients {
-		clients = append(clients, c)
-	}
-	d.hub.mu.RUnlock()
+	clients := d.hub.GetAllClients()
 
 	if len(clients) == 0 {
 		parentCmd.Status = model.CommandStatusFailed
@@ -87,7 +89,7 @@ func (d *CommandDispatcher) UpdateBroadcastParentStatus(parentID int64) {
 	failed := 0
 	timedOut := 0
 	var totalDuration int64
-	var outputs string
+	var outputs strings.Builder
 
 	for _, child := range children {
 		switch child.Status {
@@ -105,11 +107,11 @@ func (d *CommandDispatcher) UpdateBroadcastParentStatus(parentID int64) {
 		if child.TargetID != nil {
 			targetID = *child.TargetID
 		}
-		outputs += fmt.Sprintf("--- Device #%d ---\n%s", targetID, child.Output)
+		outputs.WriteString(fmt.Sprintf("--- Device #%d ---\n%s", targetID, child.Output))
 		if child.ErrorOutput != "" {
-			outputs += fmt.Sprintf("\n[stderr] %s", child.ErrorOutput)
+			outputs.WriteString(fmt.Sprintf("\n[stderr] %s", child.ErrorOutput))
 		}
-		outputs += "\n"
+		outputs.WriteString("\n")
 	}
 
 	parent, err := d.commandRepo.GetByID(parentID)
@@ -119,7 +121,10 @@ func (d *CommandDispatcher) UpdateBroadcastParentStatus(parentID int64) {
 	}
 
 	parent.Status = model.CommandStatusCompleted
-	parent.Output = outputs
+	if failed == len(children) && len(children) > 0 {
+		parent.Status = model.CommandStatusFailed
+	}
+	parent.Output = outputs.String()
 	parent.DurationMS = totalDuration
 	if err := d.commandRepo.UpdateStatus(parent); err != nil {
 		log.Printf("[dispatcher] update parent %d: %v", parentID, err)

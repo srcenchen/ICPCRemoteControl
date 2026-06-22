@@ -35,7 +35,10 @@ func (r *CommandRepo) Create(cmd *model.CommandLog) error {
 	if err != nil {
 		return fmt.Errorf("insert command: %w", err)
 	}
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("get last insert id: %w", err)
+	}
 	cmd.ID = id
 	return nil
 }

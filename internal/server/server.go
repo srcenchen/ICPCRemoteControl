@@ -133,7 +133,7 @@ func New(cfg Config) *Server {
 
 	webSubFS, err := fs.Sub(webFS, "web")
 	if err != nil {
-		panic("failed to get web sub filesystem: " + err.Error())
+		log.Fatalf("failed to get web sub filesystem: %v", err)
 	}
 	fileServer := http.FileServer(http.FS(webSubFS))
 	// Disable browser caching so embedded asset updates take effect immediately.
@@ -169,8 +169,8 @@ func New(cfg Config) *Server {
 		httpServer: &http.Server{
 			Addr:         ":" + cfg.Port,
 			Handler:      handler,
-			ReadTimeout:  15 * time.Second,
-			WriteTimeout: 15 * time.Second,
+			ReadTimeout:  30 * time.Minute,
+			WriteTimeout: 30 * time.Minute,
 			IdleTimeout:  120 * time.Second,
 		},
 		bindIP: cfg.BindIP,

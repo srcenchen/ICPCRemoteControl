@@ -242,6 +242,12 @@ func (h *AuthHandler) AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Broadcast display pages need read-only API access (GET only, no auth)
+		if r.Method == "GET" && strings.HasPrefix(path, "/api/broadcast/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// Check Cookie first (for page visits / websockets)
 		var tokenStr string
 		cookie, err := r.Cookie("jwt_token")

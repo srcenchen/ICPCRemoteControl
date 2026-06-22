@@ -80,12 +80,10 @@ func main() {
 	// TCP handler for client connections.
 	tcpHandler := service.NewTCPHandler(hub, deviceRepo, commandRepo, idAssigner, dispatcher, settings, broadcastRepo)
 
-	// Start TCP listener in background.
-	go func() {
-		if err := service.StartTCPListener(":"+*tcpPort, tcpHandler); err != nil {
-			log.Fatalf("[main] TCP listener failed: %v", err)
-		}
-	}()
+	// Start TCP listener.
+	if err := service.StartTCPListener(":"+*tcpPort, tcpHandler); err != nil {
+		log.Fatalf("[main] TCP listener failed: %v", err)
+	}
 
 	// Start HTTP server.
 	cfg := server.Config{

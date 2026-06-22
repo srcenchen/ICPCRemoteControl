@@ -63,7 +63,10 @@ func (r *BroadcastRepo) CreateFont(f *model.BroadcastFont) error {
 	if err != nil {
 		return err
 	}
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("get last insert id: %w", err)
+	}
 	f.ID = id
 	return nil
 }
@@ -111,7 +114,10 @@ func (r *BroadcastRepo) CreatePage(p *model.BroadcastPage) error {
 	if err != nil {
 		return err
 	}
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("get last insert id: %w", err)
+	}
 	p.ID = id
 	return nil
 }
@@ -197,7 +203,10 @@ func (r *BroadcastRepo) CreateItem(it *model.BroadcastItem) error {
 	if err != nil {
 		return err
 	}
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("get last insert id: %w", err)
+	}
 	it.ID = id
 	return nil
 }

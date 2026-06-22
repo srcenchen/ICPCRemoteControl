@@ -76,6 +76,7 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			if _, ok := h.clients[client.AssignedID]; ok {
 				delete(h.clients, client.AssignedID)
+				close(client.Send)
 			}
 			h.mu.Unlock()
 			if err := h.deviceRepo.UpdateConnected(client.AssignedID, false); err != nil {
@@ -89,8 +90,9 @@ func (h *Hub) Run() {
 		case admin := <-h.adminReg:
 			h.mu.Lock()
 			h.admins[admin] = true
+			adminCount := len(h.admins)
 			h.mu.Unlock()
-			log.Printf("[hub] admin connected (%d total)", len(h.admins))
+			log.Printf("[hub] admin connected (%d total)", adminCount)
 
 		case admin := <-h.adminUnreg:
 			h.mu.Lock()
@@ -98,8 +100,9 @@ func (h *Hub) Run() {
 				delete(h.admins, admin)
 				close(admin.Send)
 			}
+			adminCount := len(h.admins)
 			h.mu.Unlock()
-			log.Printf("[hub] admin disconnected (%d remaining)", len(h.admins))
+			log.Printf("[hub] admin disconnected (%d remaining)", adminCount)
 		}
 	}
 }
@@ -111,6 +114,9 @@ func (h *Hub) Register(client *ClientConn) {
 			client.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if _, err := client.Conn.Write(msg); err != nil {
 				client.Conn.Close()
+				// Drain the channel until it is closed by Unregister
+				for range client.Send {
+				}
 				return
 			}
 		}
@@ -139,6 +145,17 @@ func (h *Hub) OnlineCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.clients)
+}
+
+// GetAllClients returns a copy of the connected clients slice.
+func (h *Hub) GetAllClients() []*ClientConn {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	clients := make([]*ClientConn, 0, len(h.clients))
+	for _, c := range h.clients {
+		clients = append(clients, c)
+	}
+	return clients
 }
 
 // BroadcastToClients sends a message to all connected TCP clients.
